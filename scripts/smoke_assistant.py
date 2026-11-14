@@ -1,5 +1,8 @@
 """Verify the normal voice panel and the Android assistant service on an emulator."""
 
+import subprocess
+import time
+
 from smoke_release import APK, PACKAGE, adb, shell, start, tap, wait_for
 
 
@@ -31,10 +34,30 @@ def main():
     selected = shell("settings", "get", "secure", "voice_interaction_service")
     assert selected == f"{PACKAGE}/.AxisAssistantService", selected
     shell("am", "start", "-W", "-a", "android.settings.SETTINGS")
-    shell("cmd", "voiceinteraction", "show")
-    wait_for("Голосовой режим")
-    tap("Ввести текст")
-    wait_for("Сообщение")
+    # The shell command needs ACCESS_VOICE_INTERACTION_SERVICE on current Android.
+    # Root is available on the AOSP CI image. The application runs as its normal UID.
+    adb("root")
+    adb("wait-for-device")
+    deadline = time.monotonic() + 20
+    while True:
+        result = subprocess.run(
+            ["adb", "shell", "cmd", "voiceinteraction", "show"],
+            text=True, capture_output=True, timeout=15,
+        )
+        if result.returncode == 0:
+            break
+        if time.monotonic() >= deadline:
+            print(result.stdout, result.stderr, shell("dumpsys", "voiceinteraction"), flush=True)
+            print(shell("logcat", "-b", "crash", "-d", "-t", 70), flush=True)
+            result.check_returncode()
+        time.sleep(1)
+    try:
+        wait_for("Голосовой режим")
+        tap("Ввести текст")
+        wait_for("Сообщение")
+    except AssertionError:
+        print(shell("logcat", "-b", "crash", "-d", "-t", 70), flush=True)
+        raise
     shell("cmd", "voiceinteraction", "hide")
     print("Axis opened through the Android voice interaction service", flush=True)
 
