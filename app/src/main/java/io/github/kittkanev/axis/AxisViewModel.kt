@@ -1,6 +1,8 @@
 package io.github.kittkanev.axis
 
 import android.app.Application
+import android.content.Intent
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
@@ -15,7 +17,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import java.io.IOException
 import java.util.UUID
 
-internal enum class Operation { LOADING, SAVING, SENDING, TESTING }
+internal enum class Operation { LOADING, SAVING, SENDING, TESTING, PLANNING }
 
 internal data class AxisState(
     val workspace: Workspace = Workspace(),
@@ -33,6 +35,100 @@ internal class AxisViewModel(application: Application) : AndroidViewModel(applic
     private val mutableDraft = MutableStateFlow("")
     val draft = mutableDraft.asStateFlow()
     private var request: Job? = null
+    private val mutableDevicePlan = MutableStateFlow("")
+    val devicePlan = mutableDevicePlan.asStateFlow()
+    private val mutableDocument = MutableStateFlow<AxisDocument?>(null)
+    val document = mutableDocument.asStateFlow()
+    private val mutableDocumentNotice = MutableStateFlow<String?>(null)
+    val documentNotice = mutableDocumentNotice.asStateFlow()
+    private val mutableDocumentBusy = MutableStateFlow(false)
+    val documentBusy = mutableDocumentBusy.asStateFlow()
+    private var pendingDocument: AxisDocument? = null
+
+    fun setDevicePlan(value: String) { mutableDevicePlan.value = value.take(6000) }
+
+    fun proposeDevicePlan(app: String, goal: String) = run(Operation.PLANNING) { workspace ->
+        val profile = workspace.active ?: throw AxisException("Сначала добавьте профиль модели.")
+        val key = withContext(Dispatchers.IO) { store.readKey(profile) }
+        val instructions = "Предложи максимум 10 шагов для пользователя Android. " +
+            "Верни только JSON-массив объектов: [{\"action\":\"click\",\"value\":\"Название кнопки\"}]. " +
+            "Допустимые action: click, type (заменяет текст в активном поле), read, up, down, back. " +
+            "Для click и type передай value, для остальных не передавай. " +
+            "Экран неизвестен. Не предлагай оплату, ввод паролей или изменение разрешений."
+        val reply = provider.complete(
+            profile.baseUrl.toHttpUrl(), profile.model, key,
+            listOf(Message(Role.SYSTEM, instructions), Message(Role.USER, "Приложение: $app\nЗадача: $goal")),
+        )
+        mutableDevicePlan.value = modelDevicePlan(reply)
+        update { copy(notice = "Проверьте шаги, предложенные моделью.") }
+    }
+
+    fun newDocument() {
+        if (mutableDocumentBusy.value) return
+        mutableDocument.value = AxisDocument("document.txt", "")
+        mutableDocumentNotice.value = null
+    }
+
+    fun editDocument(text: String) {
+        if (!mutableDocumentBusy.value && text.length <= MAX_DOCUMENT_BYTES) {
+            mutableDocument.update { it?.copy(text = text) }
+        }
+    }
+
+    fun documentError(message: String) { mutableDocumentNotice.value = message }
+
+    fun readDocument(uri: Uri) = documentOperation {
+        val resolver = getApplication<Application>().contentResolver
+        mutableDocument.value = withContext(Dispatchers.IO) { readAxisDocument(resolver, uri) }
+    }
+
+    fun prepareDocumentSave(): Intent? {
+        if (mutableDocumentBusy.value) return null
+        val current = mutableDocument.value ?: return null
+        if (current.text.toByteArray(Charsets.UTF_8).size > MAX_DOCUMENT_BYTES) {
+            documentError("Размер текста превышает 128 КБ.")
+            return null
+        }
+        pendingDocument = current
+        mutableDocumentBusy.value = true
+        return newDocumentIntent(current)
+    }
+
+    fun finishDocumentSave(uri: Uri?) {
+        val current = pendingDocument
+        pendingDocument = null
+        if (current == null) return
+        mutableDocumentBusy.value = false
+        if (uri == null) return
+        documentOperation {
+            val resolver = getApplication<Application>().contentResolver
+            withContext(Dispatchers.IO) { writeAxisDocument(resolver, uri, current) }
+            documentError("Копия сохранена.")
+        }
+    }
+
+    private fun documentOperation(operation: suspend () -> Unit) {
+        if (mutableDocumentBusy.value) return
+        mutableDocumentBusy.value = true
+        mutableDocumentNotice.value = null
+        viewModelScope.launch {
+            try {
+                operation()
+            } catch (e: AxisException) {
+                documentError(e.message.orEmpty())
+            } catch (_: IOException) {
+                documentError("Не удалось открыть или сохранить файл. Проверьте доступ и формат UTF-8.")
+            } catch (_: SecurityException) {
+                documentError("Android не предоставил доступ к файлу.")
+            } catch (_: IllegalArgumentException) {
+                documentError("Поставщик документов отклонил файл.")
+            } catch (_: UnsupportedOperationException) {
+                documentError("Поставщик документов не поддерживает эту операцию.")
+            } finally {
+                mutableDocumentBusy.value = false
+            }
+        }
+    }
 
     fun setDraft(text: String) { mutableDraft.value = text }
 
@@ -112,7 +208,7 @@ internal class AxisViewModel(application: Application) : AndroidViewModel(applic
 
     fun cancelRequest() {
         val operation = mutableState.value.operation
-        if (operation != Operation.SENDING && operation != Operation.TESTING) return
+        if (operation != Operation.SENDING && operation != Operation.TESTING && operation != Operation.PLANNING) return
         request?.cancel()
         update { copy(notice = "Запрос остановлен.") }
     }

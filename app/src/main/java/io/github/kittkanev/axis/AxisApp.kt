@@ -20,6 +20,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -39,6 +41,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -46,7 +49,14 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
-private enum class Screen { CHAT, MODELS }
+private fun openAppCommand(text: String): String? {
+    val command = Regex("^(?:axis[ ,]+)?открой(?: приложение)? +(.+)$", RegexOption.IGNORE_CASE)
+    return command.matchEntire(text.trim())?.groupValues?.get(1)?.trim()
+}
+
+private enum class Screen(val label: String) {
+    CHAT("Чат"), MODELS("Модели"), DEVICE("Управление"), DOCUMENTS("Файлы")
+}
 
 @Composable
 internal fun AxisApp(
@@ -59,8 +69,10 @@ internal fun AxisApp(
 ) {
     var page by rememberSaveable { mutableStateOf(Screen.CHAT) }
     val draft by model.draft.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val fileBusy by model.documentBusy.collectAsStateWithLifecycle()
     val active = state.workspace.active
-    val waiting = state.operation == Operation.SENDING || state.operation == Operation.TESTING
+    val waiting = state.operation == Operation.SENDING || state.operation == Operation.TESTING || state.operation == Operation.PLANNING
     Scaffold(
         modifier = Modifier.imePadding(),
         snackbarHost = notices,
@@ -69,7 +81,7 @@ internal fun AxisApp(
             Modifier.fillMaxSize().padding(padding).padding(horizontal = 18.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            AxisHeader(page, waiting) { screen ->
+            AxisHeader(page, waiting || fileBusy) { screen ->
                 stopVoice()
                 page = screen
             }
@@ -86,14 +98,27 @@ internal fun AxisApp(
                     draft = draft,
                     setDraft = model::setDraft,
                     openModels = { page = Screen.MODELS },
-                    send = { model.send(draft) { model.setDraft("") } },
+                    send = {
+                        val requestedApp = openAppCommand(draft)
+                        if (requestedApp != null) {
+                            val target = installedApps(context).filter {
+                                it.label.equals(requestedApp, true) || it.packageName.equals(requestedApp, true)
+                            }.singleOrNull()
+                            if (target != null && openApp(context, target)) model.setDraft("")
+                            else page = Screen.DEVICE
+                        } else {
+                            model.send(draft) { model.setDraft("") }
+                        }
+                    },
                     cancel = model::cancelRequest,
                     clear = model::clearChat,
                     dictate = dictate,
                     speak = speak,
                     stopVoice = stopVoice,
                 )
-                else -> Models(state, model)
+                page == Screen.MODELS -> Models(state, model)
+                page == Screen.DEVICE -> DeviceScreen(model, state)
+                else -> DocumentScreen(model)
             }
         }
     }
@@ -101,6 +126,7 @@ internal fun AxisApp(
 
 @Composable
 private fun AxisHeader(page: Screen, waiting: Boolean, navigate: (Screen) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
     Row(
         Modifier.fillMaxWidth().padding(top = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -111,10 +137,17 @@ private fun AxisHeader(page: Screen, waiting: Boolean, navigate: (Screen) -> Uni
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
         )
-        if (page == Screen.CHAT) OutlinedButton(
-            enabled = !waiting, onClick = { navigate(Screen.MODELS) },
-        ) { Text("Модели") }
-        else OutlinedButton(enabled = !waiting, onClick = { navigate(Screen.CHAT) }) { Text("Чат") }
+        Box {
+            OutlinedButton(enabled = !waiting, onClick = { expanded = true }) { Text(page.label) }
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                Screen.entries.forEach { screen ->
+                    DropdownMenuItem(text = { Text(screen.label) }, onClick = {
+                        expanded = false
+                        navigate(screen)
+                    })
+                }
+            }
+        }
     }
 }
 
@@ -176,36 +209,36 @@ private fun ColumnScope.Chat(
                 }
             }
         }
+    }
+    if (state.operation == Operation.SENDING) {
+        LinearProgressIndicator(Modifier.fillMaxWidth())
+    }
+    HorizontalDivider()
+    OutlinedTextField(
+        value = draft,
+        onValueChange = { if (it.length <= MAX_PROMPT_LENGTH) setDraft(it) },
+        modifier = Modifier.fillMaxWidth().heightIn(min = 58.dp),
+        label = { Text(if (active == null) "Команда, например: Открой Настройки" else "Сообщение") },
+        maxLines = 4,
+        enabled = ready,
+    )
+    Row(
+        Modifier.fillMaxWidth().padding(bottom = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         if (state.operation == Operation.SENDING) {
-            LinearProgressIndicator(Modifier.fillMaxWidth())
+            OutlinedButton(onClick = cancel) { Text("Остановить запрос") }
+        } else {
+            OutlinedButton(onClick = { confirmVoice = true }, enabled = ready) { Text("Микрофон") }
+            Button(
+                onClick = { focus.clearFocus(); send() },
+                enabled = ready && draft.isNotBlank() && (active != null || openAppCommand(draft) != null),
+            ) { Text("Отправить") }
         }
-        HorizontalDivider()
-        OutlinedTextField(
-            value = draft,
-            onValueChange = { if (it.length <= MAX_PROMPT_LENGTH) setDraft(it) },
-            modifier = Modifier.fillMaxWidth().heightIn(min = 58.dp),
-            label = { Text("Сообщение") },
-            maxLines = 4,
-            enabled = ready,
-        )
-        Row(
-            Modifier.fillMaxWidth().padding(bottom = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (state.operation == Operation.SENDING) {
-                OutlinedButton(onClick = cancel) { Text("Остановить запрос") }
-            } else {
-                OutlinedButton(onClick = { confirmVoice = true }, enabled = ready) { Text("Микрофон") }
-                Button(
-                    onClick = { focus.clearFocus(); send() },
-                    enabled = ready && draft.isNotBlank(),
-                ) { Text("Отправить") }
-            }
-        }
-        if (messages.isNotEmpty() && ready) {
-            TextButton(onClick = { confirmClear = true }) { Text("Очистить чат") }
-        }
+    }
+    if (messages.isNotEmpty() && ready) {
+        TextButton(onClick = { confirmClear = true }) { Text("Очистить чат") }
     }
     if (confirmClear) {
         AlertDialog(

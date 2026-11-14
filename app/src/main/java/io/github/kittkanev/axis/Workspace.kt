@@ -33,6 +33,7 @@ internal data class ProfileSettings(
 )
 
 internal enum class Role(val apiName: String) {
+    SYSTEM("system"),
     USER("user"),
     ASSISTANT("assistant"),
 }

@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Axis</string>
+    <string name="device_control_label">Axis · управление приложениями</string>
+    <string name="device_control_description">Axis читает доступные элементы выбранного приложения. Каждый шаг запускается кнопкой в панели Axis. Используйте «Стоп», чтобы завершить задачу.</string>
 </resources>
