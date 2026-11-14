@@ -50,7 +50,8 @@ def start():
 def main():
     print(f"Android API {shell('getprop', 'ro.build.version.sdk')}", flush=True)
     shell("wm", "dismiss-keyguard")
-    shell("wm", "density", 200)
+    shell("wm", "size", "720x1280")
+    shell("wm", "density", 230)
     result = adb("install", "--no-incremental", "-r", APK, timeout=150)
     assert "Success" in result, result
     start()
@@ -63,18 +64,25 @@ def main():
     tap("Модели")
     tap("Файлы")
     tap("Новый текст")
-    wait_for("Текст документа")
-    tap("Сохранить копию")
-    wait_for("SAVE")
+    tap("Текст документа")
+    shell("input", "text", "Axis-release-test")
     shell("input", "keyevent", 4)
-    wait_for("Сохранить копию")
-    print("Models, document editor and Android save picker opened", flush=True)
+    tap("Сохранить копию")
+    tap("Save")
+    wait_for("Копия сохранена.")
+    tap("Выбрать файл")
+    tap("Выбрать")
+    tap("document-axis.txt")
+    wait_for("Axis-release-test")
+    print("Saved and reopened a text document via Android", flush=True)
 
     tap("Файлы")
     tap("Управление")
     tap("Settings")
     tap("Открыть приложение")
-    assert "com.android.settings" in shell("dumpsys", "window", "windows"), "Settings did not open"
+    activity = shell("dumpsys", "activity", "activities")
+    assert any("com.android.settings" in line and "topResumedActivity" in line
+               for line in activity.splitlines()), "Settings did not open"
     print("Axis opened Android Settings", flush=True)
 
 
