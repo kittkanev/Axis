@@ -37,6 +37,9 @@ internal class WorkspaceStore(context: Context) {
                     it.getString("id"), it.getString("name"), it.getString("baseUrl"),
                     it.getString("model"), it.getString("encryptedKey"), it.optJSONObject("voice").toModelVoice(),
                     it.optString("systemPrompt", DEFAULT_SYSTEM_PROMPT), it.optBoolean("concise", true),
+                    it.optJSONArray("tools")?.let { saved ->
+                        AxisTool.entries.filter { tool -> (0 until saved.length()).any { saved.optString(it) == tool.wire } }.toSet()
+                    } ?: defaultAxisTools,
                 )
             }
             val chats = data.getJSONObject("chats")
@@ -65,7 +68,8 @@ internal class WorkspaceStore(context: Context) {
                 JSONObject().put("id", profile.id).put("name", profile.name)
                     .put("baseUrl", profile.baseUrl).put("model", profile.model)
                     .put("encryptedKey", profile.encryptedKey).put("voice", profile.voice.toJson())
-                    .put("systemPrompt", profile.systemPrompt).put("concise", profile.concise),
+                    .put("systemPrompt", profile.systemPrompt).put("concise", profile.concise)
+                    .put("tools", JSONArray(profile.tools.map { it.wire })),
             )
         }
         val chats = JSONObject()

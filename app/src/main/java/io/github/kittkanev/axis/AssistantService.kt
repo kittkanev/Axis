@@ -62,7 +62,7 @@ private class AxisAssistantSession(context: Context) : VoiceInteractionSession(c
         view = this
         setViewTreeLifecycleOwner(this@AxisAssistantSession)
         setViewTreeSavedStateRegistryOwner(this@AxisAssistantSession)
-        setContent { AssistantPanel(app, controller) }
+        setContent { AssistantPanel(app, controller, ::pinOverlay) }
     }
 
     @Suppress("DEPRECATION") // Also request resize on Android 10.
@@ -93,6 +93,11 @@ private class AxisAssistantSession(context: Context) : VoiceInteractionSession(c
         super.onDestroy()
     }
 
+    private fun pinOverlay() {
+        context.startActivity(overlayIntent(context).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        hide()
+    }
+
     private fun openAxis(askMicrophone: Boolean) {
         app.requestMicrophone = askMicrophone
         val intent = mainIntent(context).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -116,7 +121,12 @@ class AssistantPanelActivity : ComponentActivity() {
             startActivity(mainIntent(this))
             finish()
         }, ::finish)
-        setContent { AssistantPanel(app, controller) }
+        setContent { AssistantPanel(app, controller, ::pinOverlay) }
+    }
+
+    private fun pinOverlay() {
+        startActivity(overlayIntent(this))
+        finish()
     }
 
     override fun onStart() {
@@ -148,5 +158,8 @@ class AxisTileService : TileService() {
     }
 }
 
-private fun mainIntent(context: Context) =
+internal const val EXTRA_OPEN_OVERLAY = "io.github.kittkanev.axis.OPEN_OVERLAY"
+internal fun overlayIntent(context: Context) = mainIntent(context).putExtra(EXTRA_OPEN_OVERLAY, true)
+
+internal fun mainIntent(context: Context) =
     Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)

@@ -33,6 +33,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -50,7 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 private enum class Screen(val label: String) {
-    CHAT("Чат"), MODELS("Модели"), DEVICE("Управление"), DOCUMENTS("Файлы"), SETTINGS("Настройки")
+    CHAT("Чат"), MODELS("Модели"), DEVICE("Управление"), DOCUMENTS("Файлы"), OVERLAY("Оверлей"), SETTINGS("Настройки")
 }
 
 @Composable
@@ -67,8 +68,17 @@ internal fun AxisApp(
     previewVoice: (Profile, ModelVoice) -> Unit,
     openPanel: () -> Unit,
     settings: @Composable ColumnScope.() -> Unit,
+    overlaySettings: @Composable ColumnScope.() -> Unit,
+    overlaySettingsRequested: Boolean,
+    consumeOverlaySettings: () -> Unit,
 ) {
     var page by rememberSaveable { mutableStateOf(Screen.CHAT) }
+    LaunchedEffect(overlaySettingsRequested) {
+        if (overlaySettingsRequested) {
+            page = Screen.OVERLAY
+            consumeOverlaySettings()
+        }
+    }
     val draft by model.draft.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val fileBusy by model.documentBusy.collectAsStateWithLifecycle()
@@ -118,6 +128,7 @@ internal fun AxisApp(
                 )
                 page == Screen.MODELS -> Models(state, model, voices, prepareVoices, previewVoice, stopVoice)
                 page == Screen.SETTINGS -> settings()
+                page == Screen.OVERLAY -> overlaySettings()
                 page == Screen.DEVICE -> DeviceScreen(model, state)
                 else -> DocumentScreen(model)
             }
@@ -332,7 +343,7 @@ private fun ColumnScope.Models(
     }
     editorId?.let { id ->
         val profile = current.firstOrNull { it.id == id }
-        ProfileEditor(profile, ready, state.notice, close = { editorId = null }) { input ->
+        ProfileEditor(profile, ready, state.notice, model::availableModels, close = { editorId = null }) { input ->
             model.saveProfile(profile?.id, input) { editorId = null }
         }
     }
@@ -357,6 +368,7 @@ private fun ProfileEditor(
     profile: Profile?,
     enabled: Boolean,
     notice: String?,
+    loadModels: suspend (String, String, Profile?) -> List<String>,
     close: () -> Unit,
     save: (ProfileInput) -> Unit,
 ) {
@@ -367,8 +379,28 @@ private fun ProfileEditor(
         mutableStateOf(
             if (profile == null) preset.profileInput()
             else ProfileInput(profile.name, profile.baseUrl, profile.model,
-                systemPrompt = profile.systemPrompt, concise = profile.concise),
+                systemPrompt = profile.systemPrompt, concise = profile.concise, tools = profile.tools),
         )
+    }
+    val canList = input.key.isNotBlank() || profile?.baseUrl?.trimEnd('/') == input.baseUrl.trim().trimEnd('/')
+    var catalog by remember(input.key, input.baseUrl) { mutableStateOf<List<String>?>(null) }
+    var catalogError by remember(input.key, input.baseUrl) { mutableStateOf<String?>(null) }
+    var loading by remember(input.key, input.baseUrl) { mutableStateOf(false) }
+    var refresh by remember { mutableStateOf(0) }
+    var picker by remember { mutableStateOf(false) }
+    LaunchedEffect(input.key, input.baseUrl, refresh) {
+        if (!canList || input.baseUrl.isBlank()) return@LaunchedEffect
+        loading = true
+        catalogError = null
+        try {
+            delay(900)
+            val available = loadModels(input.baseUrl, input.key, profile)
+            catalog = available
+        } catch (e: AxisException) {
+            catalogError = e.message
+        } finally {
+            loading = false
+        }
     }
     AlertDialog(
         onDismissRequest = { if (enabled) close() },
@@ -408,11 +440,30 @@ private fun ProfileEditor(
                         { Text("Пустое поле сохраняет текущий ключ для того же адреса.") }
                     } else null,
                 )
+                when {
+                    loading -> Text("Загружаю список моделей…")
+                    catalogError != null -> Text(catalogError.orEmpty(), color = MaterialTheme.colorScheme.error)
+                    catalog?.isEmpty() == true -> Text("API вернул пустой каталог. ID можно ввести вручную.")
+                }
+                Row {
+                    if (!catalog.isNullOrEmpty()) {
+                        TextButton(enabled = enabled, onClick = { picker = true }) { Text("Выбрать модель (${catalog?.size})") }
+                    }
+                    if (canList && input.baseUrl.isNotBlank()) {
+                        TextButton(enabled = enabled && !loading, onClick = { refresh++ }) { Text("Обновить список") }
+                    }
+                }
                 OutlinedTextField(
                     input.systemPrompt, { input = input.copy(systemPrompt = it.take(4000)) }, Modifier.fillMaxWidth(),
                     label = { Text("Системный промпт") }, minLines = 2, maxLines = 4, enabled = enabled,
                 )
                 AxisSwitch("Короткие ответы", input.concise) { if (enabled) input = input.copy(concise = it) }
+                Text("Инструменты модели", style = MaterialTheme.typography.titleMedium)
+                AxisTool.entries.forEach { tool ->
+                    AxisSwitch(tool.label, tool in input.tools) { checked ->
+                        if (enabled) input = input.copy(tools = if (checked) input.tools + tool else input.tools - tool)
+                    }
+                }
                 if (profile != null && input.baseUrl.trim().trimEnd('/') != profile.baseUrl.trimEnd('/')) {
                     Text("При смене адреса Axis очистит историю этого профиля и попросит новый ключ.")
                 }
@@ -422,6 +473,20 @@ private fun ProfileEditor(
         confirmButton = { TextButton(onClick = { save(input) }, enabled = enabled) { Text("Сохранить") } },
         dismissButton = { TextButton(onClick = close, enabled = enabled) { Text("Отмена") } },
     )
+    if (picker) {
+        var search by remember { mutableStateOf("") }
+        AlertDialog(onDismissRequest = { picker = false }, title = { Text("Доступные модели") }, text = {
+            Column {
+                OutlinedTextField(search, { search = it }, label = { Text("Поиск модели") }, singleLine = true)
+                val matched = catalog.orEmpty().filter { it.contains(search.trim(), ignoreCase = true) }
+                LazyColumn(Modifier.heightIn(max = 300.dp)) {
+                    itemsIndexed(matched) { _, id ->
+                        TextButton(onClick = { input = input.copy(model = id); picker = false }) { Text(id) }
+                    }
+                }
+            }
+        }, confirmButton = { TextButton(onClick = { picker = false }) { Text("Закрыть") } })
+    }
 }
 
 @Composable

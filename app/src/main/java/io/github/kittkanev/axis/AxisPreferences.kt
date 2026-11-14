@@ -18,12 +18,22 @@ internal enum class Accent(val label: String, val color: Long, val darkInk: Long
     SKY("Лёд", 0xFF9CD4FF, 0xFF215D89),
 }
 
+internal enum class OverlayPosition(val label: String) {
+    LEFT("Слева"), CENTER("По центру"), RIGHT("Справа"),
+}
+
 internal data class AxisPreferences(
     val theme: ThemeMode = ThemeMode.SYSTEM,
     val accent: Accent = Accent.CORAL,
     val dim: Float = 0.62f,
     val orbSize: Int = 82,
     val motion: Boolean = true,
+    val overlayPosition: OverlayPosition = OverlayPosition.RIGHT,
+    val overlayOpacity: Float = .95f,
+    val overlayOffset: Int = 32,
+    val compactSize: Int = 48,
+    val customColor: Long? = null,
+
     val autoListen: Boolean = false,
     val autoSpeak: Boolean = true,
     val autoSend: Boolean = true,
@@ -39,6 +49,12 @@ internal class AxisPreferenceStore(application: Application) {
             dim = disk.getFloat("dim", 0.62f).coerceIn(0.2f, 0.9f),
             orbSize = disk.getInt("orbSize", 82).coerceIn(64, 112),
             motion = disk.getBoolean("motion", true),
+            overlayPosition = OverlayPosition.entries.firstOrNull { it.name == disk.getString("overlayPosition", null) } ?: OverlayPosition.RIGHT,
+            overlayOpacity = disk.getFloat("overlayOpacity", .95f).coerceIn(.35f, 1f),
+            overlayOffset = disk.getInt("overlayOffset", 32).coerceIn(0, 96),
+            compactSize = disk.getInt("compactSize", 48).coerceIn(38, 64),
+            customColor = disk.getLong("customColor", -1L).takeIf { it in 0xFF000000L..0xFFFFFFFFL },
+
             autoListen = disk.getBoolean("autoListen", false),
             autoSpeak = disk.getBoolean("autoSpeak", true),
             autoSend = disk.getBoolean("autoSend", true),
@@ -53,6 +69,9 @@ internal class AxisPreferenceStore(application: Application) {
         disk.edit {
             putString("theme", value.theme.name).putString("accent", value.accent.name)
                 .putFloat("dim", value.dim).putInt("orbSize", value.orbSize).putBoolean("motion", value.motion)
+                .putString("overlayPosition", value.overlayPosition.name)
+                .putFloat("overlayOpacity", value.overlayOpacity).putInt("overlayOffset", value.overlayOffset)
+                .putInt("compactSize", value.compactSize).putLong("customColor", value.customColor ?: -1L)
                 .putBoolean("autoListen", value.autoListen).putBoolean("autoSpeak", value.autoSpeak)
                 .putBoolean("autoSend", value.autoSend)
                 .putString("recognitionLanguage", value.recognitionLanguage)
@@ -68,6 +87,8 @@ class AxisApplication : Application() {
         ViewModelProvider(workspaceModels, ViewModelProvider.AndroidViewModelFactory.getInstance(this))[AxisViewModel::class.java]
     }
 }
+
+internal val AxisPreferences.tint: Long get() = customColor ?: accent.color
 
 internal val voiceLanguages = listOf(
     "ru-RU" to "Русский", "en-US" to "English", "de-DE" to "Deutsch",

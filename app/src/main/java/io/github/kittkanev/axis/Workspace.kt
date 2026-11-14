@@ -19,6 +19,7 @@ internal data class Profile(
     val voice: ModelVoice = ModelVoice(),
     val systemPrompt: String = DEFAULT_SYSTEM_PROMPT,
     val concise: Boolean = true,
+    val tools: Set<AxisTool> = defaultAxisTools,
 )
 
 internal data class ProfileInput(
@@ -28,6 +29,7 @@ internal data class ProfileInput(
     val key: String = "",
     val systemPrompt: String = DEFAULT_SYSTEM_PROMPT,
     val concise: Boolean = true,
+    val tools: Set<AxisTool> = defaultAxisTools,
 )
 
 internal data class ProfileSettings(
@@ -77,13 +79,18 @@ internal class AxisException(message: String) : Exception(message)
 internal fun validateProfile(input: ProfileInput, existing: Profile?): ProfileSettings {
     val name = input.name.trim()
     val model = input.model.trim()
-    val key = input.key.trim()
-    val address = input.baseUrl.trim().toHttpUrlOrNull()
     if (name.isEmpty() || name.length > 80) throw AxisException("Укажите название до 80 символов.")
     if (model.isEmpty() || model.length > 200) throw AxisException("Укажите ID модели до 200 символов.")
+    val (baseUrl, key) = validateConnection(input.baseUrl, input.key, existing)
+    return ProfileSettings(name, baseUrl, model, key)
+}
+
+internal fun validateConnection(rawUrl: String, rawKey: String, existing: Profile?): Pair<HttpUrl, String> {
+    val key = rawKey.trim()
+    val address = rawUrl.trim().toHttpUrlOrNull()
     if (address == null || !address.isHttps || address.username.isNotEmpty() ||
         address.password.isNotEmpty() || address.query != null || address.fragment != null ||
-        address.encodedPath.trimEnd('/').endsWith("/chat/completions")
+        address.encodedPath.trimEnd('/').let { it.endsWith("/chat/completions") || it.endsWith("/models") }
     ) {
         throw AxisException("Введите базовый адрес HTTPS, например https://api.openai.com/v1.")
     }
@@ -94,7 +101,7 @@ internal fun validateProfile(input: ProfileInput, existing: Profile?): ProfileSe
     if (key.length > 4096 || key.any { it !in '!'..'~' }) {
         throw AxisException("Проверьте формат ключа API.")
     }
-    return ProfileSettings(name, baseUrl, model, key)
+    return baseUrl to key
 }
 
 internal fun chatContext(history: List<Message>, prompt: Message): List<Message> {

@@ -43,12 +43,17 @@ class MainActivity : ComponentActivity() {
     private val output by lazy { VoiceOutput(this) }
     private var microphoneRequest by mutableStateOf(false)
     private var microphoneAllowed by mutableStateOf(false)
+    private var overlayAllowed by mutableStateOf(false)
+    private var startOverlayAfterPermission = false
+    private var openOverlaySettings by mutableStateOf(false)
     private var assistantActive by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         receiveMicrophoneRequest()
+        receiveOverlayRequest()
+        startOverlayAfterPermission = savedInstanceState?.getBoolean("startOverlay") == true
         val model = app.workspace
         setContent {
             val prefs by app.preferences.state.collectAsStateWithLifecycle()
@@ -119,6 +124,22 @@ class MainActivity : ComponentActivity() {
                         model.speak(output, profile, sample, voice) { localNotice = it }
                     },
                     openPanel = ::openPanel,
+                    overlaySettingsRequested = openOverlaySettings,
+                    consumeOverlaySettings = { openOverlaySettings = false },
+                    overlaySettings = {
+                        OverlaySettingsScreen(prefs, app.preferences::update, overlayAllowed, start = {
+                            if (overlayAllowed) {
+                                if (!FloatingAssistantService.start(this@MainActivity)) {
+                                    localNotice = "Android не разрешил запустить плавающую панель."
+                                }
+                            } else {
+                                startOverlayAfterPermission = openOverlayPermission()
+                                if (!startOverlayAfterPermission) localNotice = "Откройте разрешение «Поверх других приложений» для Axis."
+                            }
+                        }, stop = {
+                            stopService(Intent(this@MainActivity, FloatingAssistantService::class.java))
+                        }, preview = ::openPanel)
+                    },
                     settings = {
                         SettingsScreen(
                             prefs, app.preferences::update, assistantActive, microphoneAllowed,
@@ -163,6 +184,28 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         receiveMicrophoneRequest()
+        receiveOverlayRequest()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean("startOverlay", startOverlayAfterPermission)
+        super.onSaveInstanceState(outState)
+    }
+
+    private fun receiveOverlayRequest() {
+        if (intent.getBooleanExtra(EXTRA_OPEN_OVERLAY, false)) {
+            intent.removeExtra(EXTRA_OPEN_OVERLAY)
+            openOverlaySettings = true
+        }
+    }
+
+    private fun openOverlayPermission(): Boolean = try {
+        startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.fromParts("package", packageName, null)))
+        true
+    } catch (_: ActivityNotFoundException) {
+        false
+    } catch (_: SecurityException) {
+        false
     }
 
     private fun receiveMicrophoneRequest() {
@@ -173,10 +216,17 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         refreshStatus()
+        if (startOverlayAfterPermission) {
+            startOverlayAfterPermission = false
+            if (overlayAllowed && !FloatingAssistantService.start(this)) {
+                app.workspace.report("Android не разрешил запустить плавающую панель.")
+            }
+        }
     }
 
     private fun refreshStatus() {
         microphoneAllowed = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        overlayAllowed = Settings.canDrawOverlays(this)
         assistantActive = getSystemService(RoleManager::class.java).isRoleHeld(RoleManager.ROLE_ASSISTANT)
     }
 
@@ -219,7 +269,7 @@ private fun isDark(prefs: AxisPreferences): Boolean = when (prefs.theme) {
 
 @Composable
 internal fun AxisTheme(prefs: AxisPreferences, darkOverlay: Boolean = false, content: @Composable () -> Unit) {
-    val tint = Color(prefs.accent.color)
+    val tint = Color(prefs.tint)
     val ink = Color(prefs.accent.darkInk)
     val colors = if (darkOverlay || isDark(prefs)) {
         darkColorScheme(

@@ -80,6 +80,54 @@ class OpenAiProviderTest {
         assertTrue(request.isCancelled)
     }
 
+    @Test
+    fun listsModelsOnTheConfiguredApiAndFiltersNonChatEntries() = runBlocking {
+        server.enqueue(MockResponse().setBody("""
+            {"data":[{"id":"z"},{"id":"a"},{"id":"a"},
+            {"id":"image","architecture":{"output_modalities":["image"]}},
+            {"id":"tts","supported_endpoints":["/v1/audio/speech"]},{"id":123}]}
+        """.trimIndent()))
+        assertEquals(listOf("a", "z"), provider.models(server.url("/api/v1/"), "catalog-key"))
+        val request = checkNotNull(server.takeRequest(3, TimeUnit.SECONDS))
+        assertEquals("GET", request.method)
+        assertEquals("/api/v1/models", request.path)
+        assertEquals("Bearer catalog-key", request.getHeader("Authorization"))
+    }
+
+    @Test
+    fun sendsOnlyEnabledToolsAndParsesASelectedScreenElement() = runBlocking {
+        enqueueClick("3")
+        val reply = requestClick(setOf(AxisTool.CLICK))
+        assertEquals(AxisToolCall(AxisTool.CLICK, "3"), reply.tool)
+        val request = checkNotNull(server.takeRequest(3, TimeUnit.SECONDS))
+        val tools = JSONObject(request.body.readUtf8()).getJSONArray("tools")
+        assertEquals(1, tools.length())
+        assertEquals("click_element", tools.getJSONObject(0).getJSONObject("function").getString("name"))
+    }
+
+    @Test
+    fun rejectsDisabledToolsInvalidReferencesAndParallelCalls() = runBlocking {
+        enqueueClick("3")
+        assertTrue(runCatching { requestClick(emptySet()) }.exceptionOrNull() is AxisException)
+        enqueueClick("41")
+        assertTrue(runCatching { requestClick(setOf(AxisTool.CLICK)) }.exceptionOrNull() is AxisException)
+        enqueueClick("2", repeat = 2)
+        assertTrue(runCatching { requestClick(setOf(AxisTool.CLICK)) }.exceptionOrNull() is AxisException)
+    }
+
+    private fun enqueueClick(target: String, repeat: Int = 1) {
+        val arguments = JSONObject().put("target", target).toString()
+        val function = JSONObject().put("name", "click_element").put("arguments", arguments)
+        val calls = org.json.JSONArray(List(repeat) { JSONObject().put("type", "function").put("function", function) })
+        val message = JSONObject().put("tool_calls", calls)
+        val choices = org.json.JSONArray().put(JSONObject().put("message", message))
+        server.enqueue(MockResponse().setBody(JSONObject().put("choices", choices).toString()))
+    }
+
+    private suspend fun requestClick(tools: Set<AxisTool>) = provider.respond(
+        server.url("/api/v1"), "test-model", "example-key", listOf(Message(Role.USER, "Нажми")), tools,
+    )
+
     private suspend fun complete() = provider.complete(
         server.url("/api/v1/"), "test-model", "example-key", listOf(Message(Role.USER, "Привет?")),
     )

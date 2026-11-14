@@ -23,6 +23,8 @@ internal data class AssistantInput(
     val audioLevel: Float = 0f,
     val finishingSpeech: Boolean = false,
     val waiting: Boolean = false,
+    val screen: ToolScreen? = null,
+    val proposal: ToolProposal? = null,
 )
 
 internal class AssistantController(
@@ -30,6 +32,7 @@ internal class AssistantController(
     private val app: AxisApplication,
     private val openAxis: (Boolean) -> Unit,
     private val closePanel: () -> Unit,
+    private val keepOpen: Boolean = false,
     private val launchApp: (DeviceApp) -> Boolean = { openApp(context, it) },
 ) {
     private val current = MutableStateFlow(AssistantInput())
@@ -45,16 +48,17 @@ internal class AssistantController(
         fail("Время записи истекло. Попробуйте ещё раз.")
     }
 
-    fun show() {
+    fun show(autoListen: Boolean = true) {
         visible = true
         current.value = AssistantInput()
-        if (app.preferences.state.value.autoListen && hasMicrophone() && unlocked()) startListening()
+        if (autoListen && app.preferences.state.value.autoListen && hasMicrophone() && unlocked()) startListening()
     }
 
     fun hide() {
         visible = false
         cancel()
         voice.close()
+        current.value = AssistantInput()
     }
 
     fun close() {
@@ -63,12 +67,46 @@ internal class AssistantController(
     }
 
     fun openApp() {
-        hide()
+        if (!keepOpen) hide()
         openAxis(false)
     }
 
     fun edit(text: String) = current.update { it.copy(draft = text.take(MAX_PROMPT_LENGTH), error = null) }
     fun showEditor() = current.update { it.copy(showEditor = true) }
+
+    fun toggleMicrophone() {
+        if (recognizer == null) {
+            if (current.value.waiting || current.value.proposal != null || current.value.screen != null) return
+            startListening()
+        } else {
+            disposeRecognition()
+            current.update { it.copy(draft = "", error = null) }
+        }
+    }
+
+    fun selectScreen(): Boolean {
+        val screen = DeviceControlService.instance?.toolScreen()
+        if (screen == null) {
+            fail("Подключите службу управления Axis и откройте нужное приложение.")
+            return false
+        }
+        current.update { it.copy(screen = screen, showEditor = true, error = null, proposal = null, reply = "") }
+        return true
+    }
+
+    fun collapse() = current.update { it.copy(reply = "", error = null, screen = null, proposal = null) }
+
+    fun dismissTool() = current.update { it.copy(screen = null, proposal = null) }
+
+    fun executeTool() {
+        val proposal = current.value.proposal ?: return
+        current.update { it.copy(proposal = null) }
+        if (!visible || !unlocked() || DeviceControlService.instance?.executeTool(proposal.screen, proposal.call) != true) {
+            fail("Команда не выполнена. Проверьте текущий экран и отправьте новую команду.")
+        } else {
+            current.update { it.copy(reply = "Android принял команду.", error = null) }
+        }
+    }
 
     fun startOrStop() {
         when {
@@ -88,12 +126,13 @@ internal class AssistantController(
     private fun unlocked(): Boolean = !context.getSystemService(KeyguardManager::class.java).isDeviceLocked
 
     private fun startListening() {
+        if (current.value.screen != null || current.value.proposal != null) return
         if (!visible || !unlocked()) {
             fail("Разблокируйте телефон, чтобы говорить с Axis.")
             return
         }
         if (!hasMicrophone()) {
-            hide()
+            if (!keepOpen) hide()
             openAxis(true)
             return
         }
@@ -161,10 +200,13 @@ internal class AssistantController(
         }
         val text = current.value.draft.trim()
         if (text.isEmpty() || current.value.waiting || recognizer != null) return
-        val requestedApp = directAppQuery(text)
+        val screen = current.value.screen
+        if (current.value.proposal != null) return
+        val requestedApp = if (screen == null) directAppQuery(text) else null
         if (requestedApp != null) {
             try {
                 launch(requestedApp(context, requestedApp))
+                if (keepOpen) current.update { it.copy(draft = "", reply = "Приложение открыто.", error = null) }
             } catch (e: AxisException) {
                 fail(e.message.orEmpty())
             }
@@ -186,10 +228,15 @@ internal class AssistantController(
         voice.stop()
         current.update { it.copy(waiting = true, reply = "", error = null) }
         var replied = false
-        val job = model.send(text, voiceTurn = voiceTurn, openModelApp = ::launch, onReply = { reply ->
+        val job = model.send(text, voiceTurn = voiceTurn, openModelApp = ::launch, screen = screen, onTool = { proposal ->
             replied = true
             if (visible && token == requestNumber) {
-                current.update { it.copy(draft = "", reply = reply, waiting = false) }
+                current.update { it.copy(draft = "", screen = null, proposal = proposal, waiting = false) }
+            }
+        }, onReply = { reply ->
+            replied = true
+            if (visible && token == requestNumber) {
+                current.update { it.copy(draft = "", reply = reply, screen = null, waiting = false) }
                 if (app.preferences.state.value.autoSpeak) model.speak(voice, profile, reply, profile.voice, ::fail)
             }
         }, onSaved = {})
@@ -209,8 +256,10 @@ internal class AssistantController(
     private fun launch(target: DeviceApp): Boolean {
         if (!visible || !unlocked()) return false
         if (!launchApp(target)) throw AxisException("Не удалось открыть «${target.label}».")
-        visible = false
-        closePanel()
+        if (!keepOpen) {
+            visible = false
+            closePanel()
+        }
         return true
     }
 
@@ -221,12 +270,15 @@ internal class AssistantController(
         else app.workspace.speak(voice, profile, reply, profile.voice, ::fail)
     }
 
+    fun report(message: String) = fail(message)
+
     private fun fail(message: String) = current.update { it.copy(error = message) }
 
     private fun disposeRecognition() {
         main.removeCallbacks(recognitionTimeout)
         val instance = recognizer
         recognizer = null
+        instance?.cancel()
         instance?.destroy()
         current.update { it.copy(listening = false, finishingSpeech = false, audioLevel = 0f) }
     }

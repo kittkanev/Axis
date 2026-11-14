@@ -15,6 +15,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -57,15 +58,7 @@ internal fun ColumnScope.SettingsScreen(
             AxisPicker("Тема", prefs.theme.label, ThemeMode.entries.map { it to it.label }) {
                 update(prefs.copy(theme = it))
             }
-            AxisPicker("Цвет сферы", prefs.accent.label, Accent.entries.map { it to it.label }) {
-                update(prefs.copy(accent = it))
-            }
-            AxisOrb(Modifier.size(prefs.orbSize.dp).align(Alignment.CenterHorizontally), prefs.accent, prefs.motion, false)
-            Text("Размер сферы · ${prefs.orbSize}")
-            Slider(prefs.orbSize.toFloat(), { update(prefs.copy(orbSize = it.roundToInt())) }, valueRange = 64f..112f)
-            Text("Затемнение · ${(prefs.dim * 100).roundToInt()}%")
-            Slider(prefs.dim, { update(prefs.copy(dim = it)) }, valueRange = 0.2f..0.9f)
-            AxisSwitch("Анимация", prefs.motion) { update(prefs.copy(motion = it)) }
+
         }
         Section("Голосовой режим") {
             OutlinedButton(onClick = microphone) {
@@ -92,7 +85,57 @@ internal fun ColumnScope.SettingsScreen(
 }
 
 @Composable
-private fun Section(title: String, content: @Composable ColumnScope.() -> Unit) {
+internal fun ColumnScope.OverlaySettingsScreen(
+    prefs: AxisPreferences,
+    update: (AxisPreferences) -> Unit,
+    allowed: Boolean,
+    start: () -> Unit,
+    stop: () -> Unit,
+    preview: () -> Unit,
+) {
+    Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Section("Плавающая панель") {
+            Button(onClick = start) { Text(if (allowed) "Показать поверх приложений" else "Разрешить показ поверх приложений") }
+            if (allowed) OutlinedButton(onClick = stop) { Text("Закрыть плавающую панель") }
+            OutlinedButton(onClick = preview) { Text("Открыть голосовой оверлей") }
+            Text("Android может скрывать панель на экране блокировки и защищённых экранах.")
+        }
+        Section("Внешний вид") {
+            AxisPicker("Цвет сферы", if (prefs.customColor == null) prefs.accent.label else "Свой цвет",
+                Accent.entries.map { it to it.label }) {
+                update(prefs.copy(accent = it, customColor = null))
+            }
+            var custom by remember(prefs.accent) { mutableStateOf(prefs.customColor?.let { "%06X".format(it and 0xFFFFFFL) }.orEmpty()) }
+            OutlinedTextField(custom, { custom = it.take(7) }, label = { Text("Свой цвет HEX") }, singleLine = true)
+            val rgb = custom.trim().removePrefix("#").takeIf { it.length == 6 }?.toLongOrNull(16)
+                ?.takeIf { it in 0..0xFFFFFF }
+            TextButton(enabled = rgb != null, onClick = { update(prefs.copy(customColor = 0xFF000000L or requireNotNull(rgb))) }) {
+                Text("Применить цвет")
+            }
+            AxisOrb(Modifier.size(prefs.orbSize.dp).align(Alignment.CenterHorizontally), prefs.accent, prefs.motion, false, color = prefs.tint)
+            Text("Размер раскрытой сферы · ${prefs.orbSize} dp")
+            Slider(prefs.orbSize.toFloat(), { update(prefs.copy(orbSize = it.roundToInt())) }, valueRange = 64f..112f)
+            Text("Размер свёрнутой сферы · ${prefs.compactSize} dp")
+            Slider(prefs.compactSize.toFloat(), { update(prefs.copy(compactSize = it.roundToInt())) }, valueRange = 38f..64f)
+            Text("Непрозрачность панели · ${(prefs.overlayOpacity * 100).roundToInt()}%")
+            Slider(prefs.overlayOpacity, { update(prefs.copy(overlayOpacity = it)) }, valueRange = .35f..1f)
+            Text("Затемнение голосового экрана · ${(prefs.dim * 100).roundToInt()}%")
+            Slider(prefs.dim, { update(prefs.copy(dim = it)) }, valueRange = .2f.. .9f)
+            AxisSwitch("Анимация", prefs.motion) { update(prefs.copy(motion = it)) }
+        }
+        Section("Расположение") {
+            AxisPicker("Положение панели", prefs.overlayPosition.label, OverlayPosition.entries.map { it to it.label }) {
+                update(prefs.copy(overlayPosition = it))
+            }
+            Text("Отступ снизу · ${prefs.overlayOffset} dp")
+            Slider(prefs.overlayOffset.toFloat(), { update(prefs.copy(overlayOffset = it.roundToInt())) }, valueRange = 0f..96f)
+        }
+    }
+}
+
+@Composable
+internal fun Section(title: String, content: @Composable ColumnScope.() -> Unit) {
     Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.large) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(title, style = MaterialTheme.typography.titleLarge)

@@ -52,7 +52,7 @@ import kotlin.math.cos
 import kotlin.math.PI
 
 @Composable
-internal fun AssistantPanel(app: AxisApplication, actions: AssistantController) {
+internal fun AssistantPanel(app: AxisApplication, actions: AssistantController, pin: (() -> Unit)? = null) {
     val prefs by app.preferences.state.collectAsState()
     val input by actions.state.collectAsState()
     val speaking by actions.voice.speaking.collectAsState()
@@ -91,6 +91,7 @@ internal fun AssistantPanel(app: AxisApplication, actions: AssistantController) 
             ) {
                 Text("Axis", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
                 Text(voiceLabel, color = Color.White.copy(alpha = .80f), style = MaterialTheme.typography.bodyMedium)
+                if (pin != null) TextButton(onClick = pin) { Text("Поверх приложений") }
             }
 
             Column(
@@ -156,10 +157,13 @@ internal fun AssistantPanel(app: AxisApplication, actions: AssistantController) 
                             prefs.accent,
                             prefs.motion,
                             input.listening || input.finishingSpeech || input.waiting || speaking,
-                            input.audioLevel,
+                            input.audioLevel, prefs.tint,
                         )
                     }
-                    PanelIcon("Закрыть оверлей", false, actions::close)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        MicrophoneButton(input.listening || input.finishingSpeech, actions::toggleMicrophone)
+                        PanelIcon("Закрыть оверлей", false, actions::close)
+                    }
                 }
             }
         }
@@ -167,7 +171,7 @@ internal fun AssistantPanel(app: AxisApplication, actions: AssistantController) 
 }
 
 @Composable
-private fun PanelIcon(label: String, plus: Boolean, action: () -> Unit) {
+internal fun PanelIcon(label: String, plus: Boolean, action: () -> Unit) {
     IconButton(onClick = action, modifier = Modifier.size(50.dp).semantics { contentDescription = label }) {
         Canvas(Modifier.size(24.dp)) {
             fun line(x1: Float, y1: Float, x2: Float, y2: Float) = drawLine(
@@ -192,6 +196,7 @@ internal fun AxisOrb(
     motion: Boolean,
     active: Boolean,
     audioLevel: Float = 0f,
+    color: Long = accent.color,
 ) {
     val transition = if (motion) rememberInfiniteTransition(label = "Сфера Axis") else null
     val phase = if (transition != null) {
@@ -205,7 +210,7 @@ internal fun AxisOrb(
     val spin = phase * (2 * PI).toFloat()
     val pulse = if (motion) (sin(spin * 2f) + 1f) / 2f else 0f
     val scale = 0.93f + pulse * if (active) 0.09f else 0.045f
-    val tint = Color(accent.color)
+    val tint = Color(color)
     Canvas(modifier.graphicsLayer {
         scaleX = scale + level * .1f
         scaleY = scaleX
@@ -221,5 +226,28 @@ internal fun AxisOrb(
             Offset(size.width * (.52f - .32f * cos(spin)), size.height * (.66f - .30f * sin(spin))),
             size.width * .53f,
         ))
+    }
+}
+
+
+@Composable
+internal fun MicrophoneButton(active: Boolean, onClick: () -> Unit) {
+    val label = if (active) "Выключить микрофон" else "Включить микрофон"
+    val tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+    IconButton(onClick = onClick, modifier = Modifier.semantics { contentDescription = label }) {
+        Canvas(Modifier.size(23.dp)) {
+            val stroke = 1.8.dp.toPx()
+            drawRoundRect(tint, Offset(size.width * .36f, size.height * .08f),
+                androidx.compose.ui.geometry.Size(size.width * .28f, size.height * .55f),
+                androidx.compose.ui.geometry.CornerRadius(size.width * .15f),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
+            drawArc(tint, 0f, 180f, false, Offset(size.width * .22f, size.height * .32f),
+                androidx.compose.ui.geometry.Size(size.width * .56f, size.height * .47f),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
+            drawLine(tint, Offset(size.width * .5f, size.height * .8f), Offset(size.width * .5f, size.height * .95f), stroke)
+            if (!active) {
+                drawLine(tint, Offset(size.width * .10f, size.height * .12f), Offset(size.width * .90f, size.height * .90f), stroke)
+            }
+        }
     }
 }

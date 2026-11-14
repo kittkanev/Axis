@@ -20,7 +20,7 @@ import javax.net.ssl.SSLException
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-internal data class ModelReply(val text: String = "", val appQuery: String? = null)
+internal data class ModelReply(val text: String = "", val tool: AxisToolCall? = null)
 
 internal fun axisHttpClient(): OkHttpClient = OkHttpClient.Builder()
     .connectTimeout(12, TimeUnit.SECONDS)
@@ -44,7 +44,7 @@ internal class OpenAiProvider(private val client: OkHttpClient = axisHttpClient(
         model: String,
         key: String,
         messages: List<Message>,
-        allowApp: Boolean = false,
+        tools: Set<AxisTool> = emptySet(),
     ): ModelReply {
         require(baseUrl.isHttps)
         val path = baseUrl.encodedPath.trimEnd('/')
@@ -57,17 +57,31 @@ internal class OpenAiProvider(private val client: OkHttpClient = axisHttpClient(
                     put(JSONObject().put("role", message.role.apiName).put("content", message.text))
                 }
             })
-        if (allowApp) {
-            payload.put("tools", JSONArray().put(JSONObject().put("type", "function").put("function",
-                JSONObject().put("name", "open_app")
-                    .put("description", "Open an Android app explicitly requested by the user. Pass its simple name or package ID.")
-                    .put("parameters", JSONObject().put("type", "object")
-                        .put("properties", JSONObject().put("name", JSONObject().put("type", "string")))
-                        .put("required", JSONArray().put("name"))),
-            )))
-        }
+        if (tools.isNotEmpty()) payload.put("tools", JSONArray(tools.map(AxisTool::declaration)))
         val request = jsonRequest(url, payload).header("Authorization", "Bearer $key").build()
-        return client.readJson(request) { parseReply(it, allowApp) }
+        return client.readJson(request) { parseReply(it, tools) }
+    }
+
+    suspend fun models(baseUrl: HttpUrl, key: String): List<String> {
+        require(baseUrl.isHttps)
+        val path = baseUrl.encodedPath.trimEnd('/')
+        val url = baseUrl.newBuilder().encodedPath("$path/models").build()
+        val request = Request.Builder().url(url)
+            .header("Authorization", "Bearer $key").header("Accept", "application/json").build()
+        return client.readJson(request, maxBytes = 8 * 1024 * 1024L) { json ->
+            val data = json.getJSONArray("data")
+            (0 until data.length()).mapNotNull { index ->
+                val entry = data.optJSONObject(index) ?: return@mapNotNull null
+                val id = entry.opt("id") as? String ?: return@mapNotNull null
+                val output = entry.optJSONObject("architecture")?.optJSONArray("output_modalities")
+                val endpoints = entry.optJSONArray("supported_endpoints")
+                id.takeIf {
+                    it.length in 1..200 && it.none(Char::isISOControl) &&
+                        (output == null || (0 until output.length()).any { output.optString(it) == "text" }) &&
+                        (endpoints == null || (0 until endpoints.length()).any { endpoints.optString(it) == "/v1/chat/completions" })
+                }
+            }.distinct().sorted()
+        }
     }
 }
 
@@ -121,17 +135,17 @@ private fun readJsonBody(response: Response, maxBytes: Long): JSONObject {
     return JSONObject(source.readUtf8())
 }
 
-private fun parseReply(json: JSONObject, allowApp: Boolean): ModelReply {
-    val message = json.optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("message")
+private fun parseReply(json: JSONObject, tools: Set<AxisTool>): ModelReply {
+    val choice = json.optJSONArray("choices")?.optJSONObject(0)
+    val message = choice?.optJSONObject("message")
     val calls = message?.optJSONArray("tool_calls")
-    if (allowApp && calls?.length() == 1) {
-        val function = calls.optJSONObject(0)?.optJSONObject("function")
-        if (function?.optString("name") == "open_app") {
-            val query = JSONObject(function.getString("arguments")).opt("name") as? String
-            if (query != null && query.trim().length in 1..160 && query.none(Char::isISOControl)) {
-                return ModelReply(appQuery = query.trim())
-            }
+    if (calls != null && calls.length() != 0) {
+        if (calls.length() != 1 || choice.optString("finish_reason") == "length") {
+            throw AxisException("Модель должна предложить одно завершённое действие за запрос.")
         }
+        val call = calls.getJSONObject(0)
+        if (call.optString("type") != "function") throw AxisException("Тип команды модели не поддерживается.")
+        return ModelReply(tool = parseAxisTool(call.getJSONObject("function"), tools))
     }
     val text = (message?.opt("content") as? String)?.trim()?.takeIf { it.isNotEmpty() }
         ?: throw AxisException("Модель не вернула текстовый ответ.")
