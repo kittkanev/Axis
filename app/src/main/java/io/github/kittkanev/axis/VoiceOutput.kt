@@ -1,11 +1,22 @@
 package io.github.kittkanev.axis
 
 import android.content.Context
+import android.media.AudioAttributes
+import android.media.MediaPlayer
 import android.os.Handler
 import android.os.Looper
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
+import java.io.File
+import java.io.IOException
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.Locale
 import java.util.UUID
@@ -15,6 +26,10 @@ internal data class InstalledVoice(val name: String, val language: String, val n
 internal class VoiceOutput(context: Context) {
     private val context = context.applicationContext
     private val main = Handler(Looper.getMainLooper())
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val gemini = GeminiVoice()
+    private var synthesis: Job? = null
+    private var player: MediaPlayer? = null
     private var engine: TextToSpeech? = null
     private var pending: ((TextToSpeech?) -> Unit)? = null
     private var generation = 0
@@ -49,6 +64,56 @@ internal class VoiceOutput(context: Context) {
     }
 
     private var ready = false
+
+    fun speakNeural(text: String, voice: String, key: suspend () -> String, error: (String) -> Unit) {
+        stop()
+        mutableSpeaking.value = true
+        synthesis = scope.launch {
+            try {
+                val audio = gemini.synthesize(key(), text, voice)
+                withContext(Dispatchers.IO) {
+                    val file = File.createTempFile("axis-speech-", ".wav", context.cacheDir)
+                    try {
+                        file.writeBytes(audio.wave())
+                        withContext(Dispatchers.Main) { playAudio(file, error) }
+                    } finally {
+                        file.delete()
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: AxisException) {
+                stop()
+                error(e.message.orEmpty())
+            } catch (_: IOException) {
+                stop()
+                error("Не удалось воспроизвести звук Gemini.")
+            }
+        }
+    }
+
+    private fun playAudio(file: File, error: (String) -> Unit) {
+        val audio = MediaPlayer()
+        player = audio
+        try {
+            audio.setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANT)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+            file.inputStream().use { audio.setDataSource(it.fd) }
+            audio.setOnPreparedListener { if (player === it) it.start() }
+            audio.setOnCompletionListener { if (player === it) stop() }
+            audio.setOnErrorListener { current, _, _ ->
+                if (player === current) {
+                    stop()
+                    error("Не удалось воспроизвести звук Gemini.")
+                }
+                true
+            }
+            audio.prepareAsync()
+        } catch (_: IllegalStateException) {
+            stop()
+            error("Не удалось воспроизвести звук Gemini.")
+        }
+    }
 
     fun speak(text: String, voice: ModelVoice, error: (String) -> Unit) {
         stop()
@@ -112,6 +177,10 @@ internal class VoiceOutput(context: Context) {
     }
 
     fun stop() {
+        synthesis?.cancel()
+        synthesis = null
+        player?.release()
+        player = null
         pending = null
         playback = null
         mutableSpeaking.value = false

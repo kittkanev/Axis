@@ -42,7 +42,7 @@ internal fun installedApps(context: Context): List<DeviceApp> {
 
 internal fun openApp(context: Context, app: DeviceApp): Boolean {
     val launch = context.packageManager.getLaunchIntentForPackage(app.packageName) ?: return false
-    return openActivity(context, launch)
+    return openActivity(context, launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
 }
 
 private fun openActivity(context: Context, intent: Intent): Boolean = try {

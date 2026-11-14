@@ -1,7 +1,8 @@
 package io.github.kittkanev.axis
 
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -40,12 +41,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlin.math.sin
+import kotlin.math.cos
+import kotlin.math.PI
 
 @Composable
 internal fun AssistantPanel(app: AxisApplication, actions: AssistantController) {
@@ -151,7 +155,8 @@ internal fun AssistantPanel(app: AxisApplication, actions: AssistantController) 
                             Modifier.size(prefs.orbSize.dp),
                             prefs.accent,
                             prefs.motion,
-                            input.listening || input.waiting || speaking,
+                            input.listening || input.finishingSpeech || input.waiting || speaking,
+                            input.audioLevel,
                         )
                     }
                     PanelIcon("Закрыть оверлей", false, actions::close)
@@ -181,31 +186,40 @@ private fun PanelIcon(label: String, plus: Boolean, action: () -> Unit) {
 }
 
 @Composable
-internal fun AxisOrb(modifier: Modifier, accent: Accent, motion: Boolean, active: Boolean) {
-    val phase = if (motion) {
-        val transition = rememberInfiniteTransition(label = "Сфера Axis")
-        val value by transition.animateFloat(
-            0f, 1f,
-            infiniteRepeatable(tween(if (active) 1500 else 3600, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-            label = "Свечение",
+internal fun AxisOrb(
+    modifier: Modifier,
+    accent: Accent,
+    motion: Boolean,
+    active: Boolean,
+    audioLevel: Float = 0f,
+) {
+    val transition = if (motion) rememberInfiniteTransition(label = "Сфера Axis") else null
+    val phase = if (transition != null) {
+        val position by transition.animateFloat(
+            0f, 1f, infiniteRepeatable(tween(if (active) 1700 else 3300, easing = LinearEasing)),
+            label = "Вращение света",
         )
-        value
-    } else 0.35f
+        position
+    } else 0.36f
+    val level by animateFloatAsState(if (motion) audioLevel.coerceIn(0f, 1f) else 0f, spring(), label = "Уровень речи")
+    val spin = phase * (2 * PI).toFloat()
+    val pulse = if (motion) (sin(spin * 2f) + 1f) / 2f else 0f
+    val scale = 0.93f + pulse * if (active) 0.09f else 0.045f
     val tint = Color(accent.color)
-    Canvas(modifier.clip(CircleShape)) {
+    Canvas(modifier.graphicsLayer {
+        scaleX = scale + level * .1f
+        scaleY = scaleX
+    }.clip(CircleShape)) {
         drawRect(Brush.linearGradient(listOf(tint, Color(accent.darkInk), tint), Offset.Zero, Offset(size.width, size.height)))
-        drawRect(
-            Brush.radialGradient(
-                listOf(Color.White.copy(alpha = .99f), tint.copy(alpha = .84f), Color.Transparent),
-                Offset(size.width * (.71f - phase * .38f), size.height * (.75f - phase * .23f)),
-                size.width * (.75f + .15f * sin(phase * 3.14f)),
-            ),
-        )
-        drawRect(
-            Brush.radialGradient(
-                listOf(Color.White.copy(alpha = .75f), Color.Transparent),
-                Offset(size.width * .16f, size.height * (.89f - phase * .2f)), size.width * .7f,
-            ),
-        )
+        drawRect(Brush.radialGradient(
+            listOf(Color.White, tint.copy(alpha = .89f), Color.Transparent),
+            Offset(size.width * (.52f + .35f * cos(spin)), size.height * (.57f + .26f * sin(spin))),
+            size.width * (.68f + .14f * pulse + .12f * level),
+        ))
+        drawRect(Brush.radialGradient(
+            listOf(Color.White.copy(alpha = .65f), Color.Transparent),
+            Offset(size.width * (.52f - .32f * cos(spin)), size.height * (.66f - .30f * sin(spin))),
+            size.width * .53f,
+        ))
     }
 }

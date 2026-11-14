@@ -104,16 +104,19 @@ class MainActivity : ComponentActivity() {
                             localNotice = "Система не разрешила запустить распознавание речи."
                         }
                     },
-                    speak = { text -> output.speak(text, state.workspace.active?.voice ?: ModelVoice()) { localNotice = it } },
+                    speak = { text ->
+                        val profile = state.workspace.active
+                        model.speak(output, profile, text, profile?.voice ?: ModelVoice()) { localNotice = it }
+                    },
                     stopVoice = output::stop,
                     prefs = prefs, voices = voices, prepareVoices = output::prepare,
-                    previewVoice = { voice ->
+                    previewVoice = { profile, voice ->
                         val sample = mapOf(
                             "ru-RU" to "Привет. Это голос Axis.", "en-US" to "Hello. This is the Axis voice.",
                             "de-DE" to "Hallo. Das ist die Stimme von Axis.", "es-ES" to "Hola. Esta es la voz de Axis.",
                             "fr-FR" to "Bonjour. Voici la voix d’Axis.",
                         ).getValue(voice.language)
-                        output.speak(sample, voice) { localNotice = it }
+                        model.speak(output, profile, sample, voice) { localNotice = it }
                     },
                     openPanel = ::openPanel,
                     settings = {

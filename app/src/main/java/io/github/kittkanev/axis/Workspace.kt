@@ -17,6 +17,8 @@ internal data class Profile(
     val model: String,
     val encryptedKey: String,
     val voice: ModelVoice = ModelVoice(),
+    val systemPrompt: String = DEFAULT_SYSTEM_PROMPT,
+    val concise: Boolean = true,
 )
 
 internal data class ProfileInput(
@@ -24,6 +26,8 @@ internal data class ProfileInput(
     val baseUrl: String = "https://api.openai.com/v1",
     val model: String = "",
     val key: String = "",
+    val systemPrompt: String = DEFAULT_SYSTEM_PROMPT,
+    val concise: Boolean = true,
 )
 
 internal data class ProfileSettings(

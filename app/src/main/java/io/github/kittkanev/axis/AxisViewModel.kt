@@ -163,10 +163,22 @@ internal class AxisViewModel(application: Application) : AndroidViewModel(applic
             } else {
                 requireNotNull(existing).encryptedKey
             }
+            val voice = existing?.voice ?: ModelVoice(
+                neuralVoice = "Aoede".takeIf { settings.baseUrl.host == GOOGLE_API_HOST },
+            )
             persist(workspace.saveProfile(
-                Profile(profileId, settings.name, baseUrl, settings.model, encryptedKey, existing?.voice ?: ModelVoice()),
+                Profile(profileId, settings.name, baseUrl, settings.model, encryptedKey, voice,
+                    input.systemPrompt.trim().take(4000), input.concise),
             ))
             onSaved()
+        }
+    }
+
+    fun speak(output: VoiceOutput, profile: Profile?, text: String, voice: ModelVoice, error: (String) -> Unit) {
+        if (profile != null && profile.baseUrl.toHttpUrl().host == GOOGLE_API_HOST && voice.neuralVoice != null) {
+            output.speakNeural(text, voice.neuralVoice, { withContext(Dispatchers.IO) { store.readKey(profile) } }, error)
+        } else {
+            output.speak(text, voice, error)
         }
     }
 
@@ -188,7 +200,13 @@ internal class AxisViewModel(application: Application) : AndroidViewModel(applic
         persist(workspace.copy(chats = workspace.chats - id))
     }
 
-    fun send(text: String, onReply: (String) -> Unit = {}, onSaved: () -> Unit) = run(Operation.SENDING) { workspace ->
+    fun send(
+        text: String,
+        voiceTurn: Boolean = false,
+        openModelApp: ((DeviceApp) -> Boolean)? = null,
+        onReply: (String) -> Unit = {},
+        onSaved: () -> Unit,
+    ) = run(Operation.SENDING) { workspace ->
         val profile = workspace.active ?: throw AxisException("Сначала добавьте профиль модели.")
         val prompt = Message(Role.USER, text.trim())
         if (prompt.text.isEmpty() || prompt.text.length > MAX_PROMPT_LENGTH) {
@@ -196,9 +214,19 @@ internal class AxisViewModel(application: Application) : AndroidViewModel(applic
         }
         update { copy(pendingMessage = prompt) }
         val key = withContext(Dispatchers.IO) { store.readKey(profile) }
-        val reply = provider.complete(
-            profile.baseUrl.toHttpUrl(), profile.model, key, chatContext(workspace.messages, prompt),
+        val response = provider.respond(
+            profile.baseUrl.toHttpUrl(), profile.model, key,
+            listOf(profile.systemMessage(voiceTurn)) + chatContext(workspace.messages, prompt),
+            allowApp = permitsAppTool(prompt.text),
         )
+        val reply = if (response.appQuery != null) {
+            val app = getApplication<Application>()
+            val target = requestedApp(app, response.appQuery)
+            update { copy(operation = Operation.SAVING) }
+            val opened = openModelApp?.invoke(target) ?: openApp(app, target)
+            if (!opened) throw AxisException("Не удалось открыть «${target.label}».")
+            "Открываю ${target.label}."
+        } else response.text
         val nextMessages = retainChat(workspace.messages + prompt + Message(Role.ASSISTANT, reply))
         update { copy(operation = Operation.SAVING) }
         persist(workspace.copy(chats = workspace.chats + (profile.id to nextMessages)))
@@ -210,7 +238,7 @@ internal class AxisViewModel(application: Application) : AndroidViewModel(applic
         val key = withContext(Dispatchers.IO) { store.readKey(profile) }
         provider.complete(
             profile.baseUrl.toHttpUrl(), profile.model, key,
-            listOf(Message(Role.USER, "Ответь одним словом: OK.")),
+            listOf(profile.systemMessage(false), Message(Role.USER, "Ответь одним словом: OK.")),
         )
         update { copy(notice = "Модель «${profile.name}» ответила на тестовый запрос.") }
     }
@@ -221,6 +249,8 @@ internal class AxisViewModel(application: Application) : AndroidViewModel(applic
         request?.cancel()
         update { copy(notice = "Запрос остановлен.") }
     }
+
+    fun report(message: String?) = update { copy(notice = message) }
 
     fun dismissNotice() = update { copy(notice = null) }
 

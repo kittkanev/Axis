@@ -78,13 +78,14 @@ internal fun ColumnScope.SettingsScreen(
             AxisSwitch("Начинать запись при вызове", prefs.autoListen) {
                 if (it) consent = true else update(prefs.copy(autoListen = false))
             }
+            AxisSwitch("Отправлять после паузы", prefs.autoSend) { update(prefs.copy(autoSend = it)) }
             AxisSwitch("Озвучивать ответы в оверлее", prefs.autoSpeak) { update(prefs.copy(autoSpeak = it)) }
         }
     }
     if (consent) AlertDialog(
         onDismissRequest = { consent = false },
         title = { Text("Начинать запись автоматически?") },
-        text = { Text("Axis включит микрофон после вызова голосового оверлея на разблокированном экране. Вы проверяете текст перед отправкой модели.") },
+        text = { Text("Axis включит микрофон после вызова голосового оверлея на разблокированном экране. Если включена отправка после паузы, распознанная фраза отправится автоматически.") },
         confirmButton = { TextButton(onClick = { update(prefs.copy(autoListen = true)); consent = false }) { Text("Включить") } },
         dismissButton = { TextButton(onClick = { consent = false }) { Text("Отмена") } },
     )
@@ -101,7 +102,7 @@ private fun Section(title: String, content: @Composable ColumnScope.() -> Unit) 
 }
 
 @Composable
-private fun AxisSwitch(label: String, checked: Boolean, change: (Boolean) -> Unit) {
+internal fun AxisSwitch(label: String, checked: Boolean, change: (Boolean) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(label, Modifier.weight(1f))
         Switch(checked, change)
@@ -140,17 +141,32 @@ internal fun VoiceEditor(
         title = { Text("Голос · ${profile.name}") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                if (ProviderPreset.forUrl(profile.baseUrl) == ProviderPreset.GOOGLE) {
+                    val engines = listOf(false to "Android", true to "Gemini TTS")
+                    AxisPicker("Синтез речи", if (setting.neuralVoice == null) "Android" else "Gemini TTS", engines) {
+                        setting = setting.copy(neuralVoice = if (it) "Aoede" else null)
+                    }
+                }
+                val neural = setting.neuralVoice
+                if (neural != null && ProviderPreset.forUrl(profile.baseUrl) == ProviderPreset.GOOGLE) {
+                    AxisPicker("Голос Gemini", geminiVoices.getValue(neural), geminiVoices.toList()) {
+                        setting = setting.copy(neuralVoice = it)
+                    }
+                    Text("Gemini получает текст для озвучивания отдельным запросом.")
+                }
                 AxisPicker("Язык", voiceLanguages.toMap().getValue(setting.language), voiceLanguages) {
                     setting = setting.copy(language = it, name = null)
                 }
-                val options = listOf(null to "По умолчанию") + available.map { it.name to label(it) }
-                AxisPicker("Голос Android", selected?.let(::label) ?: "По умолчанию", options) {
-                    setting = setting.copy(name = it)
+                if (neural == null || ProviderPreset.forUrl(profile.baseUrl) != ProviderPreset.GOOGLE) {
+                    val options = listOf(null to "По умолчанию") + available.map { it.name to label(it) }
+                    AxisPicker("Голос Android", selected?.let(::label) ?: "По умолчанию", options) {
+                        setting = setting.copy(name = it)
+                    }
+                    Text("Скорость · ${(setting.rate * 100).roundToInt()}%")
+                    Slider(setting.rate, { setting = setting.copy(rate = it) }, valueRange = 0.6f..1.5f)
+                    Text("Высота · ${(setting.pitch * 100).roundToInt()}%")
+                    Slider(setting.pitch, { setting = setting.copy(pitch = it) }, valueRange = 0.7f..1.4f)
                 }
-                Text("Скорость · ${(setting.rate * 100).roundToInt()}%")
-                Slider(setting.rate, { setting = setting.copy(rate = it) }, valueRange = 0.6f..1.5f)
-                Text("Высота · ${(setting.pitch * 100).roundToInt()}%")
-                Slider(setting.pitch, { setting = setting.copy(pitch = it) }, valueRange = 0.7f..1.4f)
                 OutlinedButton(onClick = { preview(setting) }) { Text("Прослушать") }
             }
         },

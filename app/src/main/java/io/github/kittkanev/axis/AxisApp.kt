@@ -49,11 +49,6 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
-private fun openAppCommand(text: String): String? {
-    val command = Regex("^(?:axis[ ,]+)?открой(?: приложение)? +(.+)$", RegexOption.IGNORE_CASE)
-    return command.matchEntire(text.trim())?.groupValues?.get(1)?.trim()
-}
-
 private enum class Screen(val label: String) {
     CHAT("Чат"), MODELS("Модели"), DEVICE("Управление"), DOCUMENTS("Файлы"), SETTINGS("Настройки")
 }
@@ -69,7 +64,7 @@ internal fun AxisApp(
     prefs: AxisPreferences,
     voices: List<InstalledVoice>,
     prepareVoices: () -> Unit,
-    previewVoice: (ModelVoice) -> Unit,
+    previewVoice: (Profile, ModelVoice) -> Unit,
     openPanel: () -> Unit,
     settings: @Composable ColumnScope.() -> Unit,
 ) {
@@ -103,13 +98,14 @@ internal fun AxisApp(
                     setDraft = model::setDraft,
                     openModels = { page = Screen.MODELS },
                     send = {
-                        val requestedApp = openAppCommand(draft)
+                        val requestedApp = directAppQuery(draft)
                         if (requestedApp != null) {
-                            val target = installedApps(context).filter {
-                                it.label.equals(requestedApp, true) || it.packageName.equals(requestedApp, true)
-                            }.singleOrNull()
-                            if (target != null && openApp(context, target)) model.setDraft("")
-                            else page = Screen.DEVICE
+                            try {
+                                launchRequestedApp(context, requestedApp)
+                                model.setDraft("")
+                            } catch (e: AxisException) {
+                                model.report(e.message)
+                            }
                         } else {
                             model.send(draft) { model.setDraft("") }
                         }
@@ -239,7 +235,7 @@ private fun ColumnScope.Chat(
             OutlinedButton(onClick = { confirmVoice = true }, enabled = ready) { Text("Микрофон") }
             Button(
                 onClick = { focus.clearFocus(); send() },
-                enabled = ready && draft.isNotBlank() && (active != null || openAppCommand(draft) != null),
+                enabled = ready && draft.isNotBlank() && (active != null || directAppQuery(draft) != null),
             ) { Text("Отправить") }
         }
     }
@@ -292,7 +288,7 @@ private fun MessageCard(title: String, message: Message, speak: (String) -> Unit
 @Composable
 private fun ColumnScope.Models(
     state: AxisState, model: AxisViewModel, voices: List<InstalledVoice>,
-    prepareVoices: () -> Unit, previewVoice: (ModelVoice) -> Unit, stopVoice: () -> Unit,
+    prepareVoices: () -> Unit, previewVoice: (Profile, ModelVoice) -> Unit, stopVoice: () -> Unit,
 ) {
     var voiceProfileId by rememberSaveable { mutableStateOf<String?>(null) }
     var editorId by remember { mutableStateOf<String?>(null) }
@@ -328,7 +324,7 @@ private fun ColumnScope.Models(
     }
 
     current.firstOrNull { it.id == voiceProfileId }?.let { profile ->
-        VoiceEditor(profile, voices, previewVoice, close = { stopVoice(); voiceProfileId = null }) {
+        VoiceEditor(profile, voices, { previewVoice(profile, it) }, close = { stopVoice(); voiceProfileId = null }) {
             model.saveVoice(profile.id, it)
             stopVoice()
             voiceProfileId = null
@@ -364,10 +360,14 @@ private fun ProfileEditor(
     close: () -> Unit,
     save: (ProfileInput) -> Unit,
 ) {
+    var preset by remember(profile?.id) {
+        mutableStateOf(profile?.let { ProviderPreset.forUrl(it.baseUrl) } ?: ProviderPreset.GOOGLE)
+    }
     var input by remember(profile?.id) {
         mutableStateOf(
-            if (profile == null) ProfileInput()
-            else ProfileInput(profile.name, profile.baseUrl, profile.model),
+            if (profile == null) preset.profileInput()
+            else ProfileInput(profile.name, profile.baseUrl, profile.model,
+                systemPrompt = profile.systemPrompt, concise = profile.concise),
         )
     }
     AlertDialog(
@@ -376,11 +376,20 @@ private fun ProfileEditor(
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Ключ хранится на устройстве и передаётся указанному API. Тест соединения отправляет короткий запрос и может расходовать лимит модели.")
+                AxisPicker("Провайдер", preset.title, ProviderPreset.entries.map { it to it.title }) { next ->
+                    if (!enabled || next == preset) return@AxisPicker
+                    preset = next
+                    val presetInput = next.profileInput()
+                    input = input.copy(
+                        name = presetInput.name.ifBlank { input.name }, baseUrl = presetInput.baseUrl,
+                        model = presetInput.model, key = "",
+                    )
+                }
                 OutlinedTextField(
                     input.name, { input = input.copy(name = it) }, Modifier.fillMaxWidth(),
                     label = { Text("Название") }, singleLine = true, enabled = enabled,
                 )
-                OutlinedTextField(
+                if (preset == ProviderPreset.CUSTOM) OutlinedTextField(
                     input.baseUrl, { input = input.copy(baseUrl = it) }, Modifier.fillMaxWidth(),
                     label = { Text("Базовый адрес API") }, singleLine = true, enabled = enabled,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
@@ -399,6 +408,11 @@ private fun ProfileEditor(
                         { Text("Пустое поле сохраняет текущий ключ для того же адреса.") }
                     } else null,
                 )
+                OutlinedTextField(
+                    input.systemPrompt, { input = input.copy(systemPrompt = it.take(4000)) }, Modifier.fillMaxWidth(),
+                    label = { Text("Системный промпт") }, minLines = 2, maxLines = 4, enabled = enabled,
+                )
+                AxisSwitch("Короткие ответы", input.concise) { if (enabled) input = input.copy(concise = it) }
                 if (profile != null && input.baseUrl.trim().trimEnd('/') != profile.baseUrl.trimEnd('/')) {
                     Text("При смене адреса Axis очистит историю этого профиля и попросит новый ключ.")
                 }

@@ -26,6 +26,7 @@ internal data class AxisPreferences(
     val motion: Boolean = true,
     val autoListen: Boolean = false,
     val autoSpeak: Boolean = true,
+    val autoSend: Boolean = true,
     val recognitionLanguage: String = "ru-RU",
 )
 
@@ -40,6 +41,7 @@ internal class AxisPreferenceStore(application: Application) {
             motion = disk.getBoolean("motion", true),
             autoListen = disk.getBoolean("autoListen", false),
             autoSpeak = disk.getBoolean("autoSpeak", true),
+            autoSend = disk.getBoolean("autoSend", true),
             recognitionLanguage = disk.getString("recognitionLanguage", "ru-RU")
                 ?.takeIf { tag -> voiceLanguages.any { it.first == tag } } ?: "ru-RU",
         ),
@@ -52,6 +54,7 @@ internal class AxisPreferenceStore(application: Application) {
             putString("theme", value.theme.name).putString("accent", value.accent.name)
                 .putFloat("dim", value.dim).putInt("orbSize", value.orbSize).putBoolean("motion", value.motion)
                 .putBoolean("autoListen", value.autoListen).putBoolean("autoSpeak", value.autoSpeak)
+                .putBoolean("autoSend", value.autoSend)
                 .putString("recognitionLanguage", value.recognitionLanguage)
         }
     }
@@ -76,4 +79,5 @@ internal data class ModelVoice(
     val name: String? = null,
     val rate: Float = 1f,
     val pitch: Float = 1f,
+    val neuralVoice: String? = null,
 )

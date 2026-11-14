@@ -20,6 +20,7 @@ internal data class AssistantInput(
     val reply: String = "",
     val error: String? = null,
     val listening: Boolean = false,
+    val audioLevel: Float = 0f,
     val finishingSpeech: Boolean = false,
     val waiting: Boolean = false,
 )
@@ -29,6 +30,7 @@ internal class AssistantController(
     private val app: AxisApplication,
     private val openAxis: (Boolean) -> Unit,
     private val closePanel: () -> Unit,
+    private val launchApp: (DeviceApp) -> Boolean = { openApp(context, it) },
 ) {
     private val current = MutableStateFlow(AssistantInput())
     val state = current.asStateFlow()
@@ -107,11 +109,15 @@ internal class AssistantController(
             return
         }
         recognizer = instance
-        current.update { it.copy(listening = true, error = null, reply = "") }
+        current.update { it.copy(listening = true, audioLevel = 0f, draft = "", showEditor = false, error = null, reply = "") }
         instance.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) = Unit
             override fun onBeginningOfSpeech() = Unit
-            override fun onRmsChanged(rmsdB: Float) = Unit
+            override fun onRmsChanged(rmsdB: Float) {
+                if (recognizer === instance && rmsdB.isFinite()) {
+                    current.update { it.copy(audioLevel = ((rmsdB + 2f) / 12f).coerceIn(0f, 1f)) }
+                }
+            }
             override fun onBufferReceived(buffer: ByteArray?) = Unit
             override fun onEndOfSpeech() {
                 if (recognizer === instance) current.update { it.copy(listening = false, finishingSpeech = true) }
@@ -124,7 +130,12 @@ internal class AssistantController(
                 if (recognizer !== instance) return
                 disposeRecognition()
                 val words = results.firstRecognitionResult()
-                if (words.isBlank()) fail("Речь не распознана.") else edit(words)
+                if (words.isBlank()) {
+                    fail("Речь не распознана.")
+                } else {
+                    edit(words)
+                    if (app.preferences.state.value.autoSend) submit(voiceTurn = true)
+                }
             }
             override fun onError(error: Int) {
                 if (recognizer !== instance) return
@@ -141,13 +152,24 @@ internal class AssistantController(
         }
     }
 
-    fun send() {
+    fun send() = submit(voiceTurn = true)
+
+    private fun submit(voiceTurn: Boolean) {
         if (!visible || !unlocked()) {
             fail("Разблокируйте телефон, чтобы отправить запрос.")
             return
         }
         val text = current.value.draft.trim()
         if (text.isEmpty() || current.value.waiting || recognizer != null) return
+        val requestedApp = directAppQuery(text)
+        if (requestedApp != null) {
+            try {
+                launch(requestedApp(context, requestedApp))
+            } catch (e: AxisException) {
+                fail(e.message.orEmpty())
+            }
+            return
+        }
         val model = app.workspace
         val snapshot = model.state.value
         if (snapshot.operation != null) {
@@ -164,11 +186,11 @@ internal class AssistantController(
         voice.stop()
         current.update { it.copy(waiting = true, reply = "", error = null) }
         var replied = false
-        val job = model.send(text, onReply = { reply ->
+        val job = model.send(text, voiceTurn = voiceTurn, openModelApp = ::launch, onReply = { reply ->
             replied = true
             if (visible && token == requestNumber) {
                 current.update { it.copy(draft = "", reply = reply, waiting = false) }
-                if (app.preferences.state.value.autoSpeak) voice.speak(reply, profile.voice, ::fail)
+                if (app.preferences.state.value.autoSpeak) model.speak(voice, profile, reply, profile.voice, ::fail)
             }
         }, onSaved = {})
         request = job
@@ -184,10 +206,19 @@ internal class AssistantController(
         }
     }
 
+    private fun launch(target: DeviceApp): Boolean {
+        if (!visible || !unlocked()) return false
+        if (!launchApp(target)) throw AxisException("Не удалось открыть «${target.label}».")
+        visible = false
+        closePanel()
+        return true
+    }
+
     fun speakReply() {
         val profile = app.workspace.state.value.workspace.active ?: return
         val reply = current.value.reply.takeIf { it.isNotBlank() } ?: return
-        if (voice.speaking.value) voice.stop() else voice.speak(reply, profile.voice, ::fail)
+        if (voice.speaking.value) voice.stop()
+        else app.workspace.speak(voice, profile, reply, profile.voice, ::fail)
     }
 
     private fun fail(message: String) = current.update { it.copy(error = message) }
@@ -197,12 +228,12 @@ internal class AssistantController(
         val instance = recognizer
         recognizer = null
         instance?.destroy()
-        current.update { it.copy(listening = false, finishingSpeech = false) }
+        current.update { it.copy(listening = false, finishingSpeech = false, audioLevel = 0f) }
     }
 
     private fun cancel() {
         requestNumber++
-        request?.cancel()
+        if (app.workspace.state.value.operation != Operation.SAVING) request?.cancel()
         request = null
         disposeRecognition()
         voice.stop()
