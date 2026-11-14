@@ -70,9 +70,6 @@ class MainActivity : ComponentActivity() {
                         else model.setDraft(words.take(MAX_PROMPT_LENGTH))
                     }
                 }
-                val chooseRole = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-                    refreshStatus()
-                }
                 val permit = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
                     refreshStatus()
                     localNotice = if (granted) "Микрофон доступен в голосовом оверлее." else "Доступ к микрофону не получен."
@@ -123,14 +120,9 @@ class MainActivity : ComponentActivity() {
                         SettingsScreen(
                             prefs, app.preferences::update, assistantActive, microphoneAllowed,
                             chooseAssistant = {
-                                val roles = getSystemService(RoleManager::class.java)
-                                try {
-                                    if (!assistantActive && roles.isRoleAvailable(RoleManager.ROLE_ASSISTANT)) {
-                                        chooseRole.launch(roles.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT))
-                                    } else {
-                                        startActivity(Intent(Settings.ACTION_VOICE_INPUT_SETTINGS))
-                                    }
-                                } catch (_: ActivityNotFoundException) {
+                                if (!openSettings(Settings.ACTION_VOICE_INPUT_SETTINGS) &&
+                                    !openSettings(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)
+                                ) {
                                     localNotice = "Откройте Android → Приложения по умолчанию → Цифровой ассистент."
                                 }
                             },
@@ -183,6 +175,15 @@ class MainActivity : ComponentActivity() {
     private fun refreshStatus() {
         microphoneAllowed = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         assistantActive = getSystemService(RoleManager::class.java).isRoleHeld(RoleManager.ROLE_ASSISTANT)
+    }
+
+    private fun openSettings(action: String): Boolean = try {
+        startActivity(Intent(action))
+        true
+    } catch (_: ActivityNotFoundException) {
+        false
+    } catch (_: SecurityException) {
+        false
     }
 
     private fun openPanel() = startActivity(Intent(this, AssistantPanelActivity::class.java))
