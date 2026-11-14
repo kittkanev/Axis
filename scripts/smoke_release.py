@@ -78,6 +78,9 @@ def main():
 
     tap("Файлы")
     tap("Управление")
+    tap("Найти приложение")
+    shell("input", "text", "com.android.settings")
+    shell("input", "keyevent", 4)
     tap("Settings")
     tap("Открыть приложение")
     activity = shell("dumpsys", "activity", "activities")
