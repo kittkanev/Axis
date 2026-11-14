@@ -28,7 +28,7 @@ def wait_for(label):
             tree = ET.fromstring(adb("exec-out", "cat", "/sdcard/axis-smoke.xml"))
             visible = [node.get("text", "") for node in tree.iter("node")]
             for node in tree.iter("node"):
-                if node.get("text") == label:
+                if node.get("text", "").casefold() == label.casefold():
                     return node
         except (ET.ParseError, subprocess.SubprocessError):
             pass
@@ -68,7 +68,7 @@ def main():
     shell("input", "text", "Axis-release-test")
     shell("input", "keyevent", 4)
     tap("Сохранить копию")
-    tap("Save")
+    tap("SAVE")
     wait_for("Копия сохранена.")
     tap("Выбрать файл")
     tap("Выбрать")
