@@ -1,3 +1,4 @@
+//PLAN DEVICE/План девайса//
 package io.github.kittkanev.axis
 
 import org.json.JSONArray
