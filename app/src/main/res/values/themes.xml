@@ -4,4 +4,17 @@
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar">false</item>
     </style>
+    <style name="Theme.Axis.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#171321</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_axis_splash</item>
+        <item name="postSplashScreenTheme">@style/Theme.Axis</item>
+    </style>
+    <style name="Theme.Axis.Assistant" parent="Theme.Axis">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+    </style>
 </resources>

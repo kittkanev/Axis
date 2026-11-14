@@ -35,7 +35,7 @@ internal class WorkspaceStore(context: Context) {
             val profiles = data.getJSONArray("profiles").objects().map {
                 Profile(
                     it.getString("id"), it.getString("name"), it.getString("baseUrl"),
-                    it.getString("model"), it.getString("encryptedKey"),
+                    it.getString("model"), it.getString("encryptedKey"), it.optJSONObject("voice").toModelVoice(),
                 )
             }
             val chats = data.getJSONObject("chats")
@@ -63,7 +63,7 @@ internal class WorkspaceStore(context: Context) {
             profiles.put(
                 JSONObject().put("id", profile.id).put("name", profile.name)
                     .put("baseUrl", profile.baseUrl).put("model", profile.model)
-                    .put("encryptedKey", profile.encryptedKey),
+                    .put("encryptedKey", profile.encryptedKey).put("voice", profile.voice.toJson()),
             )
         }
         val chats = JSONObject()
@@ -152,3 +152,17 @@ private class KeyVault {
     private fun encode(bytes: ByteArray): String = Base64.encodeToString(bytes, Base64.NO_WRAP)
     private fun decode(value: String): ByteArray = Base64.decode(value, Base64.NO_WRAP)
 }
+
+internal fun JSONObject?.toModelVoice(): ModelVoice {
+    if (this == null) return ModelVoice()
+    val language = optString("language").takeIf { tag -> voiceLanguages.any { it.first == tag } } ?: "ru-RU"
+    return ModelVoice(
+        language = language,
+        name = opt("name") as? String,
+        rate = optDouble("rate", 1.0).takeIf { it.isFinite() }?.toFloat()?.coerceIn(0.6f, 1.5f) ?: 1f,
+        pitch = optDouble("pitch", 1.0).takeIf { it.isFinite() }?.toFloat()?.coerceIn(0.7f, 1.4f) ?: 1f,
+    )
+}
+
+internal fun ModelVoice.toJson(): JSONObject = JSONObject().put("language", language)
+    .put("name", name ?: JSONObject.NULL).put("rate", rate.toDouble()).put("pitch", pitch.toDouble())

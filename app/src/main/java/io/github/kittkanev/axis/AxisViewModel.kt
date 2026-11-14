@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -162,9 +163,16 @@ internal class AxisViewModel(application: Application) : AndroidViewModel(applic
             } else {
                 requireNotNull(existing).encryptedKey
             }
-            persist(workspace.saveProfile(Profile(profileId, settings.name, baseUrl, settings.model, encryptedKey)))
+            persist(workspace.saveProfile(
+                Profile(profileId, settings.name, baseUrl, settings.model, encryptedKey, existing?.voice ?: ModelVoice()),
+            ))
             onSaved()
         }
+    }
+
+    fun saveVoice(id: String, voice: ModelVoice) = run(Operation.SAVING) { workspace ->
+        val profile = workspace.profiles.firstOrNull { it.id == id } ?: return@run
+        persist(workspace.saveProfile(profile.copy(voice = voice)))
     }
 
     fun selectProfile(id: String) = run(Operation.SAVING) { workspace ->
@@ -180,7 +188,7 @@ internal class AxisViewModel(application: Application) : AndroidViewModel(applic
         persist(workspace.copy(chats = workspace.chats - id))
     }
 
-    fun send(text: String, onSaved: () -> Unit) = run(Operation.SENDING) { workspace ->
+    fun send(text: String, onReply: (String) -> Unit = {}, onSaved: () -> Unit) = run(Operation.SENDING) { workspace ->
         val profile = workspace.active ?: throw AxisException("Сначала добавьте профиль модели.")
         val prompt = Message(Role.USER, text.trim())
         if (prompt.text.isEmpty() || prompt.text.length > MAX_PROMPT_LENGTH) {
@@ -195,6 +203,7 @@ internal class AxisViewModel(application: Application) : AndroidViewModel(applic
         update { copy(operation = Operation.SAVING) }
         persist(workspace.copy(chats = workspace.chats + (profile.id to nextMessages)))
         onSaved()
+        onReply(reply)
     }
 
     fun testProfile(profile: Profile) = run(Operation.TESTING) {
@@ -215,9 +224,9 @@ internal class AxisViewModel(application: Application) : AndroidViewModel(applic
 
     fun dismissNotice() = update { copy(notice = null) }
 
-    private fun run(operation: Operation, block: suspend (Workspace) -> Unit) {
+    private fun run(operation: Operation, block: suspend (Workspace) -> Unit): Job? {
         val current = mutableState.value
-        if (current.operation != null || current.loadFailed) return
+        if (current.operation != null || current.loadFailed) return null
         update { copy(operation = operation, notice = null) }
         request = viewModelScope.launch {
             try {
@@ -232,10 +241,17 @@ internal class AxisViewModel(application: Application) : AndroidViewModel(applic
                 update { copy(operation = null, pendingMessage = null) }
             }
         }
+        return request
     }
 
     private suspend fun persist(workspace: Workspace) {
-        withContext(Dispatchers.IO) { store.save(workspace) }
+        withContext(NonCancellable) {
+            withContext(Dispatchers.IO) { store.save(workspace) }
+            applyWorkspace(workspace)
+        }
+    }
+
+    private fun applyWorkspace(workspace: Workspace) {
         val previous = mutableState.value.workspace.active
         if (previous?.id != workspace.active?.id || previous?.baseUrl != workspace.active?.baseUrl) {
             setDraft("")

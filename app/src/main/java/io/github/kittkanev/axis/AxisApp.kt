@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -19,7 +20,6 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -55,7 +55,7 @@ private fun openAppCommand(text: String): String? {
 }
 
 private enum class Screen(val label: String) {
-    CHAT("Чат"), MODELS("Модели"), DEVICE("Управление"), DOCUMENTS("Файлы")
+    CHAT("Чат"), MODELS("Модели"), DEVICE("Управление"), DOCUMENTS("Файлы"), SETTINGS("Настройки")
 }
 
 @Composable
@@ -66,6 +66,12 @@ internal fun AxisApp(
     dictate: () -> Unit,
     speak: (String) -> Unit,
     stopVoice: () -> Unit,
+    prefs: AxisPreferences,
+    voices: List<InstalledVoice>,
+    prepareVoices: () -> Unit,
+    previewVoice: (ModelVoice) -> Unit,
+    openPanel: () -> Unit,
+    settings: @Composable ColumnScope.() -> Unit,
 ) {
     var page by rememberSaveable { mutableStateOf(Screen.CHAT) }
     val draft by model.draft.collectAsStateWithLifecycle()
@@ -81,14 +87,12 @@ internal fun AxisApp(
             Modifier.fillMaxSize().padding(padding).padding(horizontal = 18.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            AxisHeader(page, waiting || fileBusy) { screen ->
+            AxisHeader(page, waiting || fileBusy, openPanel) { screen ->
                 stopVoice()
                 page = screen
             }
             when {
-                state.operation == Operation.LOADING -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
+                state.operation == Operation.LOADING -> AxisLoading(prefs)
                 state.loadFailed -> InfoCard("Данные недоступны", "Повторите загрузку локального профиля и истории.") {
                     Button(onClick = model::load) { Text("Повторить") }
                 }
@@ -116,7 +120,8 @@ internal fun AxisApp(
                     speak = speak,
                     stopVoice = stopVoice,
                 )
-                page == Screen.MODELS -> Models(state, model)
+                page == Screen.MODELS -> Models(state, model, voices, prepareVoices, previewVoice, stopVoice)
+                page == Screen.SETTINGS -> settings()
                 page == Screen.DEVICE -> DeviceScreen(model, state)
                 else -> DocumentScreen(model)
             }
@@ -125,7 +130,7 @@ internal fun AxisApp(
 }
 
 @Composable
-private fun AxisHeader(page: Screen, waiting: Boolean, navigate: (Screen) -> Unit) {
+private fun AxisHeader(page: Screen, waiting: Boolean, openPanel: () -> Unit, navigate: (Screen) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     Row(
         Modifier.fillMaxWidth().padding(top = 8.dp),
@@ -137,6 +142,7 @@ private fun AxisHeader(page: Screen, waiting: Boolean, navigate: (Screen) -> Uni
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
         )
+        TextButton(onClick = openPanel, enabled = !waiting) { Text("Голос") }
         Box {
             OutlinedButton(enabled = !waiting, onClick = { expanded = true }) { Text(page.label) }
             DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
@@ -284,7 +290,11 @@ private fun MessageCard(title: String, message: Message, speak: (String) -> Unit
 }
 
 @Composable
-private fun ColumnScope.Models(state: AxisState, model: AxisViewModel) {
+private fun ColumnScope.Models(
+    state: AxisState, model: AxisViewModel, voices: List<InstalledVoice>,
+    prepareVoices: () -> Unit, previewVoice: (ModelVoice) -> Unit, stopVoice: () -> Unit,
+) {
+    var voiceProfileId by rememberSaveable { mutableStateOf<String?>(null) }
     var editorId by remember { mutableStateOf<String?>(null) }
     var removeId by rememberSaveable { mutableStateOf<String?>(null) }
     val current = state.workspace.profiles
@@ -310,12 +320,20 @@ private fun ColumnScope.Models(state: AxisState, model: AxisViewModel) {
                 if (active) Text("Активная модель", style = MaterialTheme.typography.labelLarge)
                 else TextButton(onClick = { model.selectProfile(profile.id) }, enabled = ready) { Text("Выбрать") }
                 TextButton(onClick = { model.testProfile(profile) }, enabled = ready) { Text("Проверить соединение") }
+                TextButton(onClick = { prepareVoices(); voiceProfileId = profile.id }, enabled = ready) { Text("Голос модели") }
                 TextButton(onClick = { editorId = profile.id }, enabled = ready) { Text("Изменить") }
                 TextButton(onClick = { removeId = profile.id }, enabled = ready) { Text("Удалить") }
             }
         }
     }
 
+    current.firstOrNull { it.id == voiceProfileId }?.let { profile ->
+        VoiceEditor(profile, voices, previewVoice, close = { stopVoice(); voiceProfileId = null }) {
+            model.saveVoice(profile.id, it)
+            stopVoice()
+            voiceProfileId = null
+        }
+    }
     editorId?.let { id ->
         val profile = current.firstOrNull { it.id == id }
         ProfileEditor(profile, ready, state.notice, close = { editorId = null }) { input ->
@@ -399,6 +417,16 @@ private fun InfoCard(title: String, text: String, actions: @Composable ColumnSco
             Text(title, style = MaterialTheme.typography.titleLarge)
             Text(text, style = MaterialTheme.typography.bodyLarge)
             actions()
+        }
+    }
+}
+
+@Composable
+private fun AxisLoading(prefs: AxisPreferences) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(18.dp)) {
+            AxisOrb(Modifier.size(86.dp), prefs.accent, prefs.motion, true)
+            Text("Загружаю профили", style = MaterialTheme.typography.titleMedium)
         }
     }
 }

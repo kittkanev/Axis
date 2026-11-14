@@ -29,3 +29,26 @@ jobs:
           name: axis-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+  assistant-smoke:
+    runs-on: ubuntu-latest
+    needs: build
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v4
+        with:
+          name: axis-debug
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Exercise the assistant on Android 15
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: default
+          disable-animations: true
+          script: python3 scripts/smoke_assistant.py app-debug.apk

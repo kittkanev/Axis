@@ -16,6 +16,7 @@ internal data class Profile(
     val baseUrl: String,
     val model: String,
     val encryptedKey: String,
+    val voice: ModelVoice = ModelVoice(),
 )
 
 internal data class ProfileInput(

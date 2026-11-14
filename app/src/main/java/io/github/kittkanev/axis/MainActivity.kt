@@ -1,22 +1,26 @@
 package io.github.kittkanev.axis
 
+import android.Manifest
 import android.app.Activity
+import android.app.StatusBarManager
+import android.app.role.RoleManager
 import android.content.ActivityNotFoundException
+import android.content.ComponentName
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.graphics.drawable.Icon
+import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
+import android.provider.Settings
 import android.speech.RecognizerIntent
-import android.speech.tts.TextToSpeech
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.viewModels
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -24,45 +28,62 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.core.content.edit
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import java.util.Locale
-import java.util.UUID
 
 class MainActivity : ComponentActivity() {
-    private val model: AxisViewModel by viewModels()
-    private var voice: TextToSpeech? = null
-    private var voiceReady = false
-    private var pendingSpeech: Pair<String, (String) -> Unit>? = null
-    private val mainHandler = Handler(Looper.getMainLooper())
+    private val app get() = application as AxisApplication
+    private val output by lazy { VoiceOutput(this) }
+    private var microphoneRequest by mutableStateOf(false)
+    private var microphoneAllowed by mutableStateOf(false)
+    private var assistantActive by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen()
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        receiveMicrophoneRequest()
+        val model = app.workspace
         setContent {
-            AxisTheme {
+            val prefs by app.preferences.state.collectAsStateWithLifecycle()
+            val dark = isDark(prefs)
+            SideEffect {
+                val bars = if (dark) SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                else SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+                enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
+            }
+            AxisTheme(prefs) {
                 val state by model.state.collectAsStateWithLifecycle()
+                val voices by output.voices.collectAsStateWithLifecycle()
                 val notices = remember { SnackbarHostState() }
                 var localNotice by remember { mutableStateOf<String?>(null) }
-                val recognizer = rememberLauncherForActivityResult(
-                    ActivityResultContracts.StartActivityForResult(),
-                ) { result ->
+                val recognizer = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
                     if (result.resultCode == Activity.RESULT_OK) {
-                        val words = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
-                            ?.firstOrNull()?.trim()
-                        if (!words.isNullOrEmpty()) {
-                            model.setDraft(words.take(MAX_PROMPT_LENGTH))
-                        } else {
-                            localNotice = "Распознаватель не вернул текст."
-                        }
+                        val words = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.trim()
+                        if (words.isNullOrEmpty()) localNotice = "Распознаватель не вернул текст."
+                        else model.setDraft(words.take(MAX_PROMPT_LENGTH))
                     }
                 }
-
+                val chooseRole = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+                    refreshStatus()
+                }
+                val permit = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+                    refreshStatus()
+                    localNotice = if (granted) "Микрофон доступен в голосовом оверлее." else "Доступ к микрофону не получен."
+                }
+                LaunchedEffect(microphoneRequest) {
+                    if (microphoneRequest) {
+                        microphoneRequest = false
+                        getPreferences(MODE_PRIVATE).edit { putBoolean("askedMic", true) }
+                        permit.launch(Manifest.permission.RECORD_AUDIO)
+                    }
+                }
                 LaunchedEffect(state.notice) {
                     state.notice?.let {
                         notices.showSnackbar(it)
@@ -75,97 +96,133 @@ class MainActivity : ComponentActivity() {
                         localNotice = null
                     }
                 }
-                Box(Modifier.fillMaxSize()) {
-                    AxisApp(
-                        state = state,
-                        notices = { SnackbarHost(notices) },
-                        model = model,
-                        dictate = {
-                            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ru-RU")
-                            }
-                            try {
-                                recognizer.launch(intent)
-                            } catch (_: ActivityNotFoundException) {
-                                localNotice = "На устройстве нет приложения для распознавания речи."
-                            } catch (_: SecurityException) {
-                                localNotice = "Система не разрешила запустить распознавание речи."
-                            }
-                        },
-                        speak = { text -> speak(text) { localNotice = it } },
-                        stopVoice = ::stopSpeech,
-                    )
-                }
-            }
-        }
-    }
-
-    private fun speak(text: String, onError: (String) -> Unit) {
-        if (!voiceReady) {
-            pendingSpeech = text to onError
-            if (voice == null) {
-                voice = TextToSpeech(this) { status ->
-                    mainHandler.post {
-                        if (isDestroyed) return@post
-                        val pending = pendingSpeech
-                        pendingSpeech = null
-                        if (status == TextToSpeech.SUCCESS) {
-                            voiceReady = true
-                            pending?.let { (message, report) -> speak(message, report) }
-                        } else {
-                            voice?.shutdown()
-                            voice = null
-                            pending?.second?.invoke("Синтезатор речи недоступен.")
+                AxisApp(
+                    state = state, model = model, notices = { SnackbarHost(notices) },
+                    dictate = {
+                        try {
+                            recognizer.launch(dictationIntent(prefs.recognitionLanguage))
+                        } catch (_: ActivityNotFoundException) {
+                            localNotice = "На устройстве нет приложения для распознавания речи. Попробуйте голосовой оверлей."
+                        } catch (_: SecurityException) {
+                            localNotice = "Система не разрешила запустить распознавание речи."
                         }
-                    }
-                }
-            }
-            return
-        }
-        val engine = voice ?: return
-        val language = engine.setLanguage(Locale.forLanguageTag("ru-RU"))
-        if (language < TextToSpeech.LANG_AVAILABLE) {
-            onError("Установите русский голос в настройках синтеза речи Android.")
-            return
-        }
-        val chunkSize = TextToSpeech.getMaxSpeechInputLength() / 2
-        engine.stop()
-        for (part in text.chunked(chunkSize)) {
-            if (engine.speak(part, TextToSpeech.QUEUE_ADD, null, UUID.randomUUID().toString()) == TextToSpeech.ERROR) {
-                engine.stop()
-                onError("Не удалось озвучить ответ.")
-                return
+                    },
+                    speak = { text -> output.speak(text, state.workspace.active?.voice ?: ModelVoice()) { localNotice = it } },
+                    stopVoice = output::stop,
+                    prefs = prefs, voices = voices, prepareVoices = output::prepare,
+                    previewVoice = { voice ->
+                        val sample = mapOf(
+                            "ru-RU" to "Привет. Это голос Axis.", "en-US" to "Hello. This is the Axis voice.",
+                            "de-DE" to "Hallo. Das ist die Stimme von Axis.", "es-ES" to "Hola. Esta es la voz de Axis.",
+                            "fr-FR" to "Bonjour. Voici la voix d’Axis.",
+                        ).getValue(voice.language)
+                        output.speak(sample, voice) { localNotice = it }
+                    },
+                    openPanel = ::openPanel,
+                    settings = {
+                        SettingsScreen(
+                            prefs, app.preferences::update, assistantActive, microphoneAllowed,
+                            chooseAssistant = {
+                                val roles = getSystemService(RoleManager::class.java)
+                                try {
+                                    if (!assistantActive && roles.isRoleAvailable(RoleManager.ROLE_ASSISTANT)) {
+                                        chooseRole.launch(roles.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT))
+                                    } else {
+                                        startActivity(Intent(Settings.ACTION_VOICE_INPUT_SETTINGS))
+                                    }
+                                } catch (_: ActivityNotFoundException) {
+                                    localNotice = "Откройте Android → Приложения по умолчанию → Цифровой ассистент."
+                                }
+                            },
+                            addTile = {
+                                if (Build.VERSION.SDK_INT >= 33) {
+                                    getSystemService(StatusBarManager::class.java).requestAddTileService(
+                                        ComponentName(this@MainActivity, AxisTileService::class.java), "Axis",
+                                        Icon.createWithResource(this@MainActivity, R.drawable.ic_axis_tile), mainExecutor,
+                                    ) { code ->
+                                        if (code != StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ADDED &&
+                                            code != StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ALREADY_ADDED
+                                        ) localNotice = "Добавьте Axis через редактор плиток быстрых настроек."
+                                    }
+                                } else localNotice = "Откройте редактор плиток быстрых настроек и перетащите Axis."
+                            },
+                            microphone = {
+                                if (microphoneAllowed || !shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO) &&
+                                    getPreferences(MODE_PRIVATE).getBoolean("askedMic", false)
+                                ) {
+                                    startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.fromParts("package", packageName, null)))
+                                } else {
+                                    getPreferences(MODE_PRIVATE).edit { putBoolean("askedMic", true) }
+                                    permit.launch(Manifest.permission.RECORD_AUDIO)
+                                }
+                            },
+                            preview = ::openPanel,
+                        )
+                    },
+                )
             }
         }
     }
 
-    private fun stopSpeech() {
-        pendingSpeech = null
-        voice?.stop()
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        receiveMicrophoneRequest()
+    }
+
+    private fun receiveMicrophoneRequest() {
+        microphoneRequest = app.requestMicrophone
+        app.requestMicrophone = false
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refreshStatus()
+    }
+
+    private fun refreshStatus() {
+        microphoneAllowed = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        assistantActive = getSystemService(RoleManager::class.java).isRoleHeld(RoleManager.ROLE_ASSISTANT)
+    }
+
+    private fun openPanel() = startActivity(Intent(this, AssistantPanelActivity::class.java))
+
+    override fun onKeyShortcut(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_SPACE && event.isCtrlPressed && event.isShiftPressed) {
+            if (event.repeatCount == 0) openPanel()
+            return true
+        }
+        return super.onKeyShortcut(keyCode, event)
     }
 
     override fun onStop() {
-        stopSpeech()
+        output.stop()
         super.onStop()
     }
 
     override fun onDestroy() {
-        stopSpeech()
-        voice?.shutdown()
-        voice = null
+        output.close()
         super.onDestroy()
     }
 }
 
 @Composable
-private fun AxisTheme(content: @Composable () -> Unit) {
-    val colors = if (isSystemInDarkTheme()) {
+private fun isDark(prefs: AxisPreferences): Boolean = when (prefs.theme) {
+    ThemeMode.SYSTEM -> isSystemInDarkTheme()
+    ThemeMode.DARK -> true
+    ThemeMode.LIGHT -> false
+}
+
+@Composable
+internal fun AxisTheme(prefs: AxisPreferences, darkOverlay: Boolean = false, content: @Composable () -> Unit) {
+    val tint = Color(prefs.accent.color)
+    val ink = Color(prefs.accent.darkInk)
+    val colors = if (darkOverlay || isDark(prefs)) {
         darkColorScheme(
-            primary = Color(0xFFC6B7FF),
-            onPrimary = Color(0xFF2B155D),
-            primaryContainer = Color(0xFF423079),
-            onPrimaryContainer = Color(0xFFF0EAFF),
+            primary = tint,
+            onPrimary = Color(0xFF261922),
+            primaryContainer = ink,
+            onPrimaryContainer = Color.White,
             background = Color(0xFF171722),
             surface = Color(0xFF171722),
             surfaceVariant = Color(0xFF2A293A),
@@ -174,9 +231,9 @@ private fun AxisTheme(content: @Composable () -> Unit) {
         )
     } else {
         lightColorScheme(
-            primary = Color(0xFF5639AC),
-            primaryContainer = Color(0xFFE9DEFF),
-            onPrimaryContainer = Color(0xFF230E58),
+            primary = ink,
+            primaryContainer = tint.copy(alpha = .34f),
+            onPrimaryContainer = Color(0xFF211B2E),
             background = Color(0xFFFAF8FF),
             surface = Color(0xFFFAF8FF),
             surfaceVariant = Color(0xFFECE7F7),

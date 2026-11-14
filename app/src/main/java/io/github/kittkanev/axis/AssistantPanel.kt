@@ -1,0 +1,211 @@
+package io.github.kittkanev.axis
+
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import kotlin.math.sin
+
+@Composable
+internal fun AssistantPanel(app: AxisApplication, actions: AssistantController) {
+    val prefs by app.preferences.state.collectAsState()
+    val input by actions.state.collectAsState()
+    val speaking by actions.voice.speaking.collectAsState()
+    val voiceLabel = when {
+        input.listening -> "Слушаю"
+        input.finishingSpeech -> "Распознаю речь"
+        input.waiting -> "Модель готовит ответ"
+        speaking -> "Озвучиваю ответ"
+        else -> "Голосовой режим"
+    }
+    val orbAction = when {
+        input.listening -> "Завершить запись"
+        input.finishingSpeech || input.waiting -> "Остановить запрос"
+        speaking -> "Остановить озвучивание"
+        else -> "Начать запись"
+    }
+
+    AxisTheme(prefs, darkOverlay = true) {
+        Box(
+            Modifier.fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        0f to Color.Black.copy(alpha = prefs.dim * 0.5f),
+                        0.48f to Color.Black.copy(alpha = prefs.dim * 0.75f),
+                        1f to Color.Black.copy(alpha = (prefs.dim + 0.34f).coerceAtMost(0.97f)),
+                    ),
+                )
+                .windowInsetsPadding(WindowInsets.systemBars)
+                .imePadding()
+                .padding(horizontal = 24.dp, vertical = 18.dp),
+        ) {
+            Column(
+                Modifier.align(Alignment.TopCenter).fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text("Axis", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+                Text(voiceLabel, color = Color.White.copy(alpha = .80f), style = MaterialTheme.typography.bodyMedium)
+            }
+
+            Column(
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth().heightIn(max = 540.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                if (input.reply.isNotEmpty()) {
+                    Surface(
+                        color = Color(0xEB242429),
+                        shape = MaterialTheme.shapes.extraLarge,
+                    ) {
+                        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                            Text(
+                                input.reply,
+                                color = Color.White,
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.heightIn(max = 175.dp).verticalScroll(rememberScrollState()),
+                            )
+                            TextButton(onClick = actions::speakReply) { Text(if (speaking) "Остановить голос" else "Озвучить") }
+                        }
+                    }
+                }
+
+                if (input.error != null || input.draft.isNotBlank() || input.showEditor) {
+                    Surface(color = Color(0xEF242429), shape = MaterialTheme.shapes.large) {
+                        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            input.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                            if (input.draft.isNotBlank() || input.showEditor) {
+                                OutlinedTextField(
+                                    value = input.draft, onValueChange = actions::edit, label = { Text("Сообщение") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    maxLines = 3, enabled = !input.waiting && !input.listening && !input.finishingSpeech,
+                                )
+                                Button(
+                                    onClick = actions::send,
+                                    enabled = input.draft.isNotBlank() && !input.waiting && !input.listening && !input.finishingSpeech,
+                                    modifier = Modifier.align(Alignment.End),
+                                ) { Text("Отправить") }
+                            } else {
+                                TextButton(onClick = { actions.showEditor() }) { Text("Ввести текст") }
+                            }
+                        }
+                    }
+                } else if (input.reply.isEmpty()) {
+                    TextButton(onClick = actions::showEditor, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                        Text("Ввести текст")
+                    }
+                }
+
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    PanelIcon("Открыть Axis", true, actions::openApp)
+                    IconButton(
+                        onClick = actions::startOrStop,
+                        modifier = Modifier.size(prefs.orbSize.dp + 12.dp).semantics { contentDescription = orbAction },
+                    ) {
+                        AxisOrb(
+                            Modifier.size(prefs.orbSize.dp),
+                            prefs.accent,
+                            prefs.motion,
+                            input.listening || input.waiting || speaking,
+                        )
+                    }
+                    PanelIcon("Закрыть оверлей", false, actions::close)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PanelIcon(label: String, plus: Boolean, action: () -> Unit) {
+    IconButton(onClick = action, modifier = Modifier.size(50.dp).semantics { contentDescription = label }) {
+        Canvas(Modifier.size(24.dp)) {
+            fun line(x1: Float, y1: Float, x2: Float, y2: Float) = drawLine(
+                Color.White, Offset(size.width * x1, size.height * y1), Offset(size.width * x2, size.height * y2),
+                strokeWidth = 2.4.dp.toPx(), cap = StrokeCap.Round,
+            )
+            if (plus) {
+                line(.17f, .5f, .83f, .5f)
+                line(.5f, .17f, .5f, .83f)
+            } else {
+                line(.23f, .23f, .77f, .77f)
+                line(.23f, .77f, .77f, .23f)
+            }
+        }
+    }
+}
+
+@Composable
+internal fun AxisOrb(modifier: Modifier, accent: Accent, motion: Boolean, active: Boolean) {
+    val phase = if (motion) {
+        val transition = rememberInfiniteTransition(label = "Сфера Axis")
+        val value by transition.animateFloat(
+            0f, 1f,
+            infiniteRepeatable(tween(if (active) 1500 else 3600, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+            label = "Свечение",
+        )
+        value
+    } else 0.35f
+    val tint = Color(accent.color)
+    Canvas(modifier.clip(CircleShape)) {
+        drawRect(Brush.linearGradient(listOf(tint, Color(accent.darkInk), tint), Offset.Zero, Offset(size.width, size.height)))
+        drawRect(
+            Brush.radialGradient(
+                listOf(Color.White.copy(alpha = .99f), tint.copy(alpha = .84f), Color.Transparent),
+                Offset(size.width * (.71f - phase * .38f), size.height * (.75f - phase * .23f)),
+                size.width * (.75f + .15f * sin(phase * 3.14f)),
+            ),
+        )
+        drawRect(
+            Brush.radialGradient(
+                listOf(Color.White.copy(alpha = .75f), Color.Transparent),
+                Offset(size.width * .16f, size.height * (.89f - phase * .2f)), size.width * .7f,
+            ),
+        )
+    }
+}

@@ -1,0 +1,5 @@
+<voice-interaction-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:recognitionService="io.github.kittkanev.axis.AxisRecognitionService"
+    android:sessionService="io.github.kittkanev.axis.AxisAssistantSessionService"
+    android:settingsActivity="io.github.kittkanev.axis.MainActivity"
+    android:supportsAssist="true" />
