@@ -65,12 +65,12 @@ internal class VoiceOutput(context: Context) {
 
     private var ready = false
 
-    fun speakNeural(text: String, voice: String, key: suspend () -> String, error: (String) -> Unit) {
+    fun speakNeural(text: String, voice: String, style: SpeechStyle, key: suspend () -> String, error: (String) -> Unit) {
         stop()
         mutableSpeaking.value = true
         synthesis = scope.launch {
             try {
-                val audio = gemini.synthesize(key(), text, voice)
+                val audio = gemini.synthesize(key(), text, voice, style)
                 withContext(Dispatchers.IO) {
                     val file = File.createTempFile("axis-speech-", ".wav", context.cacheDir)
                     try {

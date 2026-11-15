@@ -28,6 +28,8 @@ internal data class AxisPreferences(
     val dim: Float = 0.62f,
     val orbSize: Int = 82,
     val motion: Boolean = true,
+    val openingSound: Boolean = true,
+    val accessibilityOverlay: Boolean = false,
     val overlayPosition: OverlayPosition = OverlayPosition.RIGHT,
     val overlayOpacity: Float = .95f,
     val overlayOffset: Int = 32,
@@ -49,6 +51,8 @@ internal class AxisPreferenceStore(application: Application) {
             dim = disk.getFloat("dim", 0.62f).coerceIn(0.2f, 0.9f),
             orbSize = disk.getInt("orbSize", 82).coerceIn(64, 112),
             motion = disk.getBoolean("motion", true),
+            openingSound = disk.getBoolean("openingSound", true),
+            accessibilityOverlay = disk.getBoolean("accessibilityOverlay", isXiaomiDevice),
             overlayPosition = OverlayPosition.entries.firstOrNull { it.name == disk.getString("overlayPosition", null) } ?: OverlayPosition.RIGHT,
             overlayOpacity = disk.getFloat("overlayOpacity", .95f).coerceIn(.35f, 1f),
             overlayOffset = disk.getInt("overlayOffset", 32).coerceIn(0, 96),
@@ -69,6 +73,7 @@ internal class AxisPreferenceStore(application: Application) {
         disk.edit {
             putString("theme", value.theme.name).putString("accent", value.accent.name)
                 .putFloat("dim", value.dim).putInt("orbSize", value.orbSize).putBoolean("motion", value.motion)
+                .putBoolean("openingSound", value.openingSound).putBoolean("accessibilityOverlay", value.accessibilityOverlay)
                 .putString("overlayPosition", value.overlayPosition.name)
                 .putFloat("overlayOpacity", value.overlayOpacity).putInt("overlayOffset", value.overlayOffset)
                 .putInt("compactSize", value.compactSize).putLong("customColor", value.customColor ?: -1L)
@@ -101,4 +106,10 @@ internal data class ModelVoice(
     val rate: Float = 1f,
     val pitch: Float = 1f,
     val neuralVoice: String? = null,
+    val speechStyle: SpeechStyle = SpeechStyle.NATURAL,
 )
+
+
+internal val isXiaomiDevice: Boolean
+    get() = android.os.Build.MANUFACTURER.lowercase(java.util.Locale.ROOT) in setOf("xiaomi", "poco", "redmi") ||
+        android.os.Build.BRAND.lowercase(java.util.Locale.ROOT) in setOf("xiaomi", "poco", "redmi")

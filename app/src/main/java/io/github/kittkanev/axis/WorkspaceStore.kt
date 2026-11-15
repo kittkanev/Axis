@@ -168,9 +168,10 @@ internal fun JSONObject?.toModelVoice(): ModelVoice {
         rate = optDouble("rate", 1.0).takeIf { it.isFinite() }?.toFloat()?.coerceIn(0.6f, 1.5f) ?: 1f,
         pitch = optDouble("pitch", 1.0).takeIf { it.isFinite() }?.toFloat()?.coerceIn(0.7f, 1.4f) ?: 1f,
         neuralVoice = optString("neuralVoice").takeIf { it in geminiVoices },
+        speechStyle = SpeechStyle.entries.firstOrNull { it.name == optString("speechStyle") } ?: SpeechStyle.NATURAL,
     )
 }
 
 internal fun ModelVoice.toJson(): JSONObject = JSONObject().put("language", language)
     .put("name", name ?: JSONObject.NULL).put("rate", rate.toDouble()).put("pitch", pitch.toDouble())
-    .put("neuralVoice", neuralVoice ?: JSONObject.NULL)
+    .put("neuralVoice", neuralVoice ?: JSONObject.NULL).put("speechStyle", speechStyle.name)

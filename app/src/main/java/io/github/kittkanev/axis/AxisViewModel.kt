@@ -183,7 +183,7 @@ internal class AxisViewModel(application: Application) : AndroidViewModel(applic
 
     fun speak(output: VoiceOutput, profile: Profile?, text: String, voice: ModelVoice, error: (String) -> Unit) {
         if (profile != null && profile.baseUrl.toHttpUrl().host == GOOGLE_API_HOST && voice.neuralVoice != null) {
-            output.speakNeural(text, voice.neuralVoice, { withContext(Dispatchers.IO) { store.readKey(profile) } }, error)
+            output.speakNeural(text, voice.neuralVoice, voice.speechStyle, { withContext(Dispatchers.IO) { store.readKey(profile) } }, error)
         } else {
             output.speak(text, voice, error)
         }

@@ -7,6 +7,8 @@ import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.media.AudioManager
+import android.media.ToneGenerator
 import android.speech.RecognitionListener
 import android.speech.SpeechRecognizer
 import kotlinx.coroutines.Job
@@ -42,22 +44,46 @@ internal class AssistantController(
     private var request: Job? = null
     private var visible = false
     private var requestNumber = 0
+    private var cue: ToneGenerator? = null
     private val main = Handler(Looper.getMainLooper())
     private val recognitionTimeout = Runnable {
         disposeRecognition()
         fail("Время записи истекло. Попробуйте ещё раз.")
     }
 
-    fun show(autoListen: Boolean = true) {
+    fun show(autoListen: Boolean = true, playSound: Boolean = true) {
         visible = true
         current.value = AssistantInput()
+        if (playSound) playOpeningSound()
         if (autoListen && app.preferences.state.value.autoListen && hasMicrophone() && unlocked()) startListening()
+    }
+
+    fun playOpeningSound() {
+        if (!unlocked() || !app.preferences.state.value.openingSound) return
+        val audio = context.getSystemService(AudioManager::class.java)
+        if (audio.ringerMode != AudioManager.RINGER_MODE_NORMAL) return
+        cue?.release()
+        val tone = try {
+            ToneGenerator(AudioManager.STREAM_NOTIFICATION, 32)
+        } catch (_: RuntimeException) {
+            return
+        }
+        cue = tone
+        tone.startTone(ToneGenerator.TONE_PROP_ACK, 130)
+        main.postDelayed({
+            if (cue === tone) {
+                cue = null
+                tone.release()
+            }
+        }, 200)
     }
 
     fun hide() {
         visible = false
         cancel()
         voice.close()
+        cue?.release()
+        cue = null
         current.value = AssistantInput()
     }
 

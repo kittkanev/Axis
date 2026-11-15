@@ -1,5 +1,7 @@
 package io.github.kittkanev.axis
 
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -45,6 +47,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -67,11 +72,16 @@ internal fun AxisApp(
     prepareVoices: () -> Unit,
     previewVoice: (Profile, ModelVoice) -> Unit,
     openPanel: () -> Unit,
+    assistantSetup: (() -> Unit)?,
     settings: @Composable ColumnScope.() -> Unit,
     overlaySettings: @Composable ColumnScope.() -> Unit,
     overlaySettingsRequested: Boolean,
     consumeOverlaySettings: () -> Unit,
 ) {
+    if (state.operation == Operation.LOADING) {
+        AxisLoading(prefs)
+        return
+    }
     var page by rememberSaveable { mutableStateOf(Screen.CHAT) }
     LaunchedEffect(overlaySettingsRequested) {
         if (overlaySettingsRequested) {
@@ -97,13 +107,13 @@ internal fun AxisApp(
                 page = screen
             }
             when {
-                state.operation == Operation.LOADING -> AxisLoading(prefs)
                 state.loadFailed -> InfoCard("Данные недоступны", "Повторите загрузку локального профиля и истории.") {
                     Button(onClick = model::load) { Text("Повторить") }
                 }
                 page == Screen.CHAT -> Chat(
                     state = state,
                     active = active,
+                    assistantSetup = assistantSetup,
                     draft = draft,
                     setDraft = model::setDraft,
                     openModels = { page = Screen.MODELS },
@@ -168,6 +178,7 @@ private fun AxisHeader(page: Screen, waiting: Boolean, openPanel: () -> Unit, na
 private fun ColumnScope.Chat(
     state: AxisState,
     active: Profile?,
+    assistantSetup: (() -> Unit)?,
     draft: String,
     setDraft: (String) -> Unit,
     openModels: () -> Unit,
@@ -185,6 +196,9 @@ private fun ColumnScope.Chat(
     val visibleMessages = messages + listOfNotNull(state.pendingMessage)
     val focus = LocalFocusManager.current
 
+    if (assistantSetup != null && messages.isEmpty() && ready) {
+        TextButton(onClick = assistantSetup) { Text("Сделать Axis ассистентом") }
+    }
     if (active == null) {
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()),
@@ -502,10 +516,18 @@ private fun InfoCard(title: String, text: String, actions: @Composable ColumnSco
 
 @Composable
 private fun AxisLoading(prefs: AxisPreferences) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(18.dp)) {
-            AxisOrb(Modifier.size(86.dp), prefs.accent, prefs.motion, true)
-            Text("Загружаю профили", style = MaterialTheme.typography.titleMedium)
+    val accent = Color(prefs.tint)
+    Box(
+        Modifier.fillMaxSize().background(
+            Brush.verticalGradient(listOf(Color(0xFF171321), Color(0xFF171321), accent.copy(alpha = .19f))),
+        ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Image(painterResource(R.drawable.ic_axis_splash), contentDescription = null, modifier = Modifier.size(156.dp))
+            Text("Axis", color = Color.White, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.SemiBold)
+            LinearProgressIndicator(Modifier.size(width = 108.dp, height = 3.dp), color = accent)
+            Text("Загрузка профилей", color = Color.White.copy(alpha = .8f), style = MaterialTheme.typography.bodyMedium)
         }
     }
 }

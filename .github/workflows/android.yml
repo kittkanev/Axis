@@ -33,6 +33,10 @@ jobs:
   assistant-smoke:
     runs-on: ubuntu-latest
     needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [34, 35]
     timeout-minutes: 18
     steps:
       - uses: actions/checkout@v6
@@ -44,10 +48,10 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Exercise the assistant on Android 15
+      - name: Exercise the Android assistant and overlay
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 35
+          api-level: ${{ matrix.api }}
           arch: x86_64
           target: default
           disable-animations: true

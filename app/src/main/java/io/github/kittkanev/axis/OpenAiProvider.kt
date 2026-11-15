@@ -127,7 +127,7 @@ private fun readJsonBody(response: Response, maxBytes: Long): JSONObject {
             in 500..599 -> "Провайдер временно недоступен (HTTP ${response.code})."
             else -> "Провайдер отклонил запрос (HTTP ${response.code}). Проверьте модель и адрес API."
         }
-        throw AxisException(error)
+        throw AxisException(error, response.code)
     }
     val body = response.body ?: throw AxisException("Провайдер вернул пустой ответ.")
     val source = body.source()

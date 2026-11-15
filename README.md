@@ -1,62 +1,53 @@
-# Axis для Android
+<div align="center">
 
-Axis — открытый Android-ассистент с чатом, русской диктовкой, озвучиванием, запуском приложений и работой с документами. Минимальная версия — Android 10.
+<img src="docs/axis-logo.svg" width="120" height="120" alt="Axis logo">
 
-## Установка
+# Axis for Android
 
-Скачайте APK из [Releases](https://github.com/kittkanev/Axis/releases), откройте его на телефоне и разрешите установку для приложения, через которое вы его открыли. Для обновления Android требует совпадения подписи. Если установлена более ранняя debug-сборка с другой подписью, сохраните нужные данные перед её удалением.
+An open-source Android assistant with a floating voice panel and models you connect with your own API key.
 
-- **Чат.** Добавьте до 12 профилей в меню «Модели». Для Google AI Studio, OpenAI, OpenRouter, DeepSeek и Groq адрес и начальный ID модели уже заполнены. Для своего HTTPS API укажите адрес вручную. API чата поддерживает `POST /chat/completions`. Запросы и тест соединения могут расходовать лимит. Ключ шифруется через Android Keystore. Системное распознавание речи и озвучивание зависят от служб на устройстве.
-- **Управление.** В чате можно написать или надиктовать «Открой Настройки». В разделе «Управление» можно выбрать приложение, предложить шаги через модель или ввести команды вручную. Для работы со сторонним экраном включите службу Axis в специальных возможностях Android. Некоторые версии и прошивки требуют отдельно разрешить доступ к ограниченным настройкам для приложения, установленного из APK. Если доступ не предоставлен, чат, открытие приложений и файлы по-прежнему доступны.
-- **Файлы.** В разделе «Файлы» выберите TXT или Markdown в UTF-8 до 128 КБ либо создайте новый текст. «Сохранить копию» вызывает системный выбор места сохранения. Axis не отправляет содержимое документов провайдеру.
+[![Download APK](https://img.shields.io/badge/Download-APK-ffab98?style=for-the-badge&logo=android&logoColor=171321)](https://github.com/kittkanev/Axis/releases)
+[![Build status](https://img.shields.io/github/actions/workflow/status/kittkanev/Axis/android.yml?branch=main&style=for-the-badge&label=Android%20CI)](https://github.com/kittkanev/Axis/actions/workflows/android.yml)
+[![Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-c4b5ff?style=for-the-badge)](LICENSE)
 
-Команды управления записываются по одной на строку. Например, `click Поиск`, `type Пример`, `read`, `down`, `up` или `back`. Ввод заменяет текст в активном поле. В панели показывается следующее действие, и пользователь отдельно запускает каждый шаг. Axis проверяет, что открыто выбранное приложение, и останавливается на чувствительных полях. Кнопка «Стоп» закрывает задачу. Android и чужие приложения определяют, какие элементы доступны. Если кнопка отсутствует или её название неоднозначно, шаг не выполняется. Предлагая план, модель получает только имя приложения и введённую цель.
+**Android 10 and later**
 
-Активация по ключевой фразе, локальные модели, чтение PDF и Word и выполнение шагов без участия пользователя остаются в планах.
+</div>
 
-## Сборка
+## Get started
 
-Нужны полный JDK 17 или 21, Android SDK Platform 35, Build Tools 35.0.0 и принятые лицензии SDK. Укажите `ANDROID_HOME` либо настройте Android Studio.
+1. Download an APK from [GitHub Releases](https://github.com/kittkanev/Axis/releases) and open it on your phone. If the release offers **Axis Preview**, it installs alongside Axis with a separate workspace.
+2. In **Models (Модели)**, choose Google AI Studio, OpenAI, OpenRouter, DeepSeek, Groq, or your own OpenAI-compatible HTTPS endpoint. Enter your API key and select a model. Each profile has its own system prompt, voice, and enabled tools.
+3. Tap **Set Axis as assistant (Сделать Axis ассистентом)** and confirm in Android. On phones that expose the Android assistant gesture, swipe inward from a bottom corner. You can also use the Axis Quick Settings tile, the **Voice (Голос)** button, or **Ctrl + Shift + Space** inside Axis.
+4. For a panel that stays with you when you switch apps, open **Overlay (Оверлей)** and choose **Show over apps (Показать поверх приложений)**. Use the microphone to record or cancel a recording, the gear for overlay settings, and the close button to dismiss the panel.
+
+## POCO, Xiaomi, and Redmi
+
+If the panel disappears when you switch apps on MIUI or HyperOS:
+
+1. In **Overlay (Оверлей)**, enable **Accessibility overlay (Панель через специальные возможности)**, choose **Connect Axis service (Подключить службу Axis)**, and enable Axis in Android Accessibility. Return to Axis and show the floating panel.
+2. If the firmware still interrupts the panel, open Axis's **App info → Other permissions** and allow background pop-up windows if the option is available. Under battery settings, choose **No restrictions** for Axis.
+3. If the launcher does not send the system assistant gesture, configure a supported shortcut in Android or use the Axis Quick Settings tile.
+
+Paths and labels vary by MIUI and HyperOS version. The overlay hides when the phone is locked. Android can restrict ordinary overlays on protected screens.
+
+## Voice, screen actions, and files
+
+- **Voice.** Android handles dictation. Axis can send the finished phrase after a pause. In **Models → Model voice (Голос модели)**, Google AI Studio profiles offer conversational Gemini speech with four delivery styles and a voice preview. Android voice and playback settings are also available.
+- **Screen actions.** Enable the Axis accessibility service. In the floating panel choose **Screen command (Команда экрану)**, select the screen and enter a command. Axis sends the request and visible control labels to the selected model. Confirm its proposed tap, text entry, scroll, or Back action. Axis rechecks the target window before acting. The **Device control (Управление)** screen also accepts manual plans, one action per line.
+- **Files.** Open UTF-8 TXT and Markdown files up to 128 KB through Android's file picker. Edit the text and save a separate copy.
+
+API keys are protected by Android Keystore. A normal model request sends the prompt and recent conversation to the selected provider. Gemini speech sends the reply text in a separate request. Axis does not send screenshots or document contents.
+
+## Build from source
+
+Install JDK 17 or 21, Android SDK Platform 35, and Build Tools 35.0.0. Set `ANDROID_HOME` or configure Android Studio.
 
 ```sh
-./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintRelease :app:assembleRelease
+./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-В Windows используйте `gradlew.bat`. Сборка `release` по умолчанию создаёт APK без подписи. Для распространения выровняйте и подпишите его своим ключом через Build Tools, затем проверьте `apksigner verify --verbose --print-certs`. Храните ключ выпуска отдельно от репозитория.
+On Windows use `gradlew.bat`. Use `-PaxisPreview=true` for a side-by-side build. The default `assembleRelease` output is unsigned. Use the existing release signing key for in-place APK upgrades.
 
-## Лицензия
-
-[Apache License 2.0](LICENSE).
-
-## Голосовой оверлей Axis
-
-1. В меню Axis откройте **Настройки → Выбрать ассистента** и подтвердите выбор в Android. Если окно выбора недоступно, настройка находится в списке приложений по умолчанию Android.
-2. Вызовите цифрового ассистента жестом или кнопкой, которую назначает телефон. Доступные варианты зависят от прошивки и режима навигации. Также можно добавить плитку **Axis** через быстрые настройки или открыть **Голос** внутри приложения. С физической клавиатуры внутри приложения работает **Ctrl + Shift + пробел**.
-3. Нажмите на сферу для записи. После паузы Android завершает распознавание и Axis отправляет финальный текст. Автоотправку можно отключить в настройках. **+** открывает основное приложение, **×** закрывает панель и останавливает запись, ожидание ответа и озвучивание.
-
-В **Настройках** есть светлая и тёмная темы и язык распознавания. Автоматическую запись при вызове можно включить после объяснения назначения микрофона. Вызов оверлея не передаёт модели данные с экрана или скриншот.
-
-В **Модели → Голос модели** выбираются голос Android или нейросетевой голос Gemini TTS для профиля Google AI Studio. У голосов Android можно настроить высоту и скорость. Можно прослушать пример. Голоса зависят от установленного движка синтеза. Голоса, работающие через сеть, помечены в списке. Для оверлея доступно автоматическое озвучивание ответа. В обычном чате ответ озвучивается по кнопке.
-
-Android 10 и новее. Axis использует службу распознавания Android, если она установлена. Поведение аппаратных кнопок и качество распознавания зависят от устройства.
-
-## Плавающая панель
-
-Откройте **Оверлей → Показать поверх приложений** и выдайте разрешение Android. Панель остаётся при переходах между приложениями. Сфера раскрывает и сворачивает её, кнопка микрофона начинает или отменяет запись, **×** закрывает панель. Защищённые экраны Android могут скрывать оверлей.
-
-В разделе **Оверлей** можно выбрать положение, отступ, прозрачность, размеры сферы, готовый или свой HEX-цвет, затемнение и анимацию. Язык и автоматическое поведение диктовки находятся в разделе **Настройки**.
-
-## Модели и инструменты
-
-В **Модели → Добавить профиль** после ввода ключа Axis запрашивает каталог через `GET /models`. Модель можно выбрать из списка с поиском либо указать её ID вручную. В каждом профиле редактируются системный промпт, длина ответов и разрешённые инструменты. Для инструментов внутри приложений нужна модель с поддержкой OpenAI-совместимого function calling.
-
-Чтобы нажать кнопку через модель:
-
-1. Подключите службу Axis в разделе **Управление** и откройте нужное приложение.
-2. Раскройте плавающую панель, выберите **Команда экрану → Выбрать экран** и введите запрос, например «Открой раздел Приложения».
-3. Проверьте предложенное действие и нажмите **Выполнить**. Axis сверит приложение, окно и выбранный элемент перед нажатием.
-
-В этом режиме провайдер получает команду, имя пакета и подписи доступных кнопок. Axis не отправляет скриншот, содержимое полей ввода или пароли. Обычные запросы из панели не используют данные экрана. Приложения с собственным интерфейсом могут не предоставлять кнопки для Accessibility.
-
-«Открой Настройки» работает без ключа. Голосовой оверлей просит модель отвечать в одном или двух предложениях. Для Gemini TTS текст ответа отправляется в Google AI Studio отдельным запросом.
+Axis is released under [Apache License 2.0](LICENSE).

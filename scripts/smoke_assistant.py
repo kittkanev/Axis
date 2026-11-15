@@ -33,10 +33,11 @@ def main():
 
     tap("Чат")
     tap("Настройки")
-    tap("Выбрать ассистента")
+    tap("Сделать Axis ассистентом")
     activity = shell("dumpsys", "activity", "activities")
-    assert any("com.android.settings" in line and "topResumedActivity" in line
-               for line in activity.splitlines()), "Android did not open assistant settings"
+    assert any(("com.android.settings" in line or "com.android.permissioncontroller" in line)
+               and "topResumedActivity" in line for line in activity.splitlines()), "Android did not show assistant setup"
+    shell("input", "keyevent", "KEYCODE_BACK")
     shell("cmd", "role", "add-role-holder", "--user", 0, "android.app.role.ASSISTANT", PACKAGE)
     selected = shell("settings", "get", "secure", "voice_interaction_service")
     assert selected == f"{PACKAGE}/.AxisAssistantService", selected

@@ -22,6 +22,7 @@ import java.util.concurrent.TimeUnit
 class OpenAiProviderTest {
     private val server = MockWebServer()
     private lateinit var provider: OpenAiProvider
+    private lateinit var speech: GeminiVoice
 
     @Before
     fun startHttpsServer() {
@@ -37,6 +38,7 @@ class OpenAiProviderTest {
             .callTimeout(4, TimeUnit.SECONDS)
             .build()
         provider = OpenAiProvider(client)
+        speech = GeminiVoice(client, server.url("/v1beta/"))
     }
 
     @After
@@ -113,6 +115,41 @@ class OpenAiProviderTest {
         assertTrue(runCatching { requestClick(setOf(AxisTool.CLICK)) }.exceptionOrNull() is AxisException)
         enqueueClick("2", repeat = 2)
         assertTrue(runCatching { requestClick(setOf(AxisTool.CLICK)) }.exceptionOrNull() is AxisException)
+    }
+
+    @Test
+    fun geminiVoiceSendsStyleSeparatelyFromTheSpokenText() = runBlocking {
+        server.enqueue(MockResponse().setBody("""
+            {"steps":[{"type":"model_output","content":[{"type":"audio",
+            "data":"AAECAw==","sample_rate":24000,"mime_type":"audio/l16"}]}]}
+        """.trimIndent()))
+        val result = speech.synthesize("example-key", "Привет!", "Kore", SpeechStyle.WARM)
+        assertEquals(24000, result.sampleRate)
+        assertEquals(48, result.wave().size)
+        val request = checkNotNull(server.takeRequest(3, TimeUnit.SECONDS))
+        assertEquals("/v1beta/interactions", request.path)
+        assertEquals("example-key", request.getHeader("x-goog-api-key"))
+        val body = JSONObject(request.body.readUtf8())
+        val part = body.getJSONArray("input").getJSONObject(0).getJSONArray("content").getJSONObject(0)
+        assertFalse(body.getBoolean("store"))
+        assertEquals("Привет!", part.getString("text"))
+        assertEquals(SpeechStyle.WARM.direction, part.getJSONArray("annotations").getJSONObject(0).getString("style"))
+    }
+
+    @Test
+    fun geminiVoiceRetriesOnlyWhenTheModernEndpointIsUnavailable() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(404))
+        server.enqueue(MockResponse().setBody("""
+            {"candidates":[{"content":{"parts":[{"inlineData":
+            {"data":"AAECAw==","mimeType":"audio/L16;rate=24000"}}]}}]}
+        """.trimIndent()))
+        assertEquals(4, speech.synthesize("example-key", "Hello", "Aoede", SpeechStyle.NATURAL).data.size)
+        assertEquals("/v1beta/interactions", server.takeRequest().path)
+        assertEquals("/v1beta/models/gemini-3.1-flash-tts-preview:generateContent", server.takeRequest().path)
+        server.enqueue(MockResponse().setResponseCode(429))
+        assertEquals(429, (runCatching { speech.synthesize("example-key", "Hello", "Aoede", SpeechStyle.NATURAL) }
+            .exceptionOrNull() as AxisException).httpStatus)
+        assertEquals(3, server.requestCount)
     }
 
     private fun enqueueClick(target: String, repeat: Int = 1) {

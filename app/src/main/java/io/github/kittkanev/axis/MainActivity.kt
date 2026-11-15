@@ -66,6 +66,8 @@ class MainActivity : ComponentActivity() {
             AxisTheme(prefs) {
                 val state by model.state.collectAsStateWithLifecycle()
                 val voices by output.voices.collectAsStateWithLifecycle()
+                val overlayRunning by FloatingAssistantService.isRunning.collectAsStateWithLifecycle()
+                val accessibilityConnected by DeviceControlService.isConnected.collectAsStateWithLifecycle()
                 val notices = remember { SnackbarHostState() }
                 var localNotice by remember { mutableStateOf<String?>(null) }
                 val recognizer = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -74,6 +76,25 @@ class MainActivity : ComponentActivity() {
                         if (words.isNullOrEmpty()) localNotice = "Распознаватель не вернул текст."
                         else model.setDraft(words.take(MAX_PROMPT_LENGTH))
                     }
+                }
+                val roleRequest = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+                    refreshStatus()
+                }
+                val chooseAssistant: () -> Unit = {
+                    val roles = getSystemService(RoleManager::class.java)
+                    val requested = if (assistantActive || !roles.isRoleAvailable(RoleManager.ROLE_ASSISTANT)) false else {
+                        try {
+                            roleRequest.launch(roles.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT))
+                            true
+                        } catch (_: ActivityNotFoundException) {
+                            false
+                        } catch (_: SecurityException) {
+                            false
+                        }
+                    }
+                    if (!requested && !openSettings(Settings.ACTION_VOICE_INPUT_SETTINGS) &&
+                        !openSettings(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)
+                    ) localNotice = "Откройте Android → Приложения по умолчанию → Цифровой ассистент."
                 }
                 val permit = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
                     refreshStatus()
@@ -124,11 +145,14 @@ class MainActivity : ComponentActivity() {
                         model.speak(output, profile, sample, voice) { localNotice = it }
                     },
                     openPanel = ::openPanel,
+                    assistantSetup = chooseAssistant.takeUnless { assistantActive },
                     overlaySettingsRequested = openOverlaySettings,
                     consumeOverlaySettings = { openOverlaySettings = false },
                     overlaySettings = {
-                        OverlaySettingsScreen(prefs, app.preferences::update, overlayAllowed, start = {
-                            if (overlayAllowed) {
+                        val canStart = overlayAllowed || (prefs.accessibilityOverlay && accessibilityConnected)
+                        OverlaySettingsScreen(prefs, app.preferences::update, canStart, overlayRunning,
+                            accessibilityConnected, start = {
+                            if (canStart) {
                                 if (!FloatingAssistantService.start(this@MainActivity)) {
                                     localNotice = "Android не разрешил запустить плавающую панель."
                                 }
@@ -138,18 +162,18 @@ class MainActivity : ComponentActivity() {
                             }
                         }, stop = {
                             stopService(Intent(this@MainActivity, FloatingAssistantService::class.java))
-                        }, preview = ::openPanel)
+                        }, preview = ::openPanel, accessibilitySettings = {
+                            if (!openSettings(Settings.ACTION_ACCESSIBILITY_SETTINGS)) {
+                                localNotice = "Откройте специальные возможности Android и включите службу Axis."
+                            }
+                        }, deviceSettings = {
+                            if (!openAppDetails()) localNotice = "Откройте настройки приложения Axis вручную."
+                        })
                     },
                     settings = {
                         SettingsScreen(
                             prefs, app.preferences::update, assistantActive, microphoneAllowed,
-                            chooseAssistant = {
-                                if (!openSettings(Settings.ACTION_VOICE_INPUT_SETTINGS) &&
-                                    !openSettings(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)
-                                ) {
-                                    localNotice = "Откройте Android → Приложения по умолчанию → Цифровой ассистент."
-                                }
-                            },
+                            chooseAssistant = chooseAssistant,
                             addTile = {
                                 if (Build.VERSION.SDK_INT >= 33) {
                                     getSystemService(StatusBarManager::class.java).requestAddTileService(
@@ -166,7 +190,7 @@ class MainActivity : ComponentActivity() {
                                 if (microphoneAllowed || !shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO) &&
                                     getPreferences(MODE_PRIVATE).getBoolean("askedMic", false)
                                 ) {
-                                    startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.fromParts("package", packageName, null)))
+                                    if (!openAppDetails()) localNotice = "Откройте настройки приложения Axis вручную."
                                 } else {
                                     getPreferences(MODE_PRIVATE).edit { putBoolean("askedMic", true) }
                                     permit.launch(Manifest.permission.RECORD_AUDIO)
@@ -199,14 +223,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun openOverlayPermission(): Boolean = try {
-        startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.fromParts("package", packageName, null)))
-        true
-    } catch (_: ActivityNotFoundException) {
-        false
-    } catch (_: SecurityException) {
-        false
-    }
+    private fun openOverlayPermission() = openSettings(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, packageUri())
+
+    private fun openAppDetails() = openSettings(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, packageUri())
+
+    private fun packageUri() = android.net.Uri.fromParts("package", packageName, null)
 
     private fun receiveMicrophoneRequest() {
         microphoneRequest = app.requestMicrophone
@@ -230,8 +251,8 @@ class MainActivity : ComponentActivity() {
         assistantActive = getSystemService(RoleManager::class.java).isRoleHeld(RoleManager.ROLE_ASSISTANT)
     }
 
-    private fun openSettings(action: String): Boolean = try {
-        startActivity(Intent(action))
+    private fun openSettings(action: String, uri: android.net.Uri? = null): Boolean = try {
+        startActivity(Intent(action, uri))
         true
     } catch (_: ActivityNotFoundException) {
         false
@@ -239,7 +260,11 @@ class MainActivity : ComponentActivity() {
         false
     }
 
-    private fun openPanel() = startActivity(Intent(this, AssistantPanelActivity::class.java))
+    private fun openPanel() {
+        if (!FloatingAssistantService.start(this, expand = true)) {
+            startActivity(Intent(this, AssistantPanelActivity::class.java))
+        }
+    }
 
     override fun onKeyShortcut(keyCode: Int, event: KeyEvent): Boolean {
         if (keyCode == KeyEvent.KEYCODE_SPACE && event.isCtrlPressed && event.isShiftPressed) {

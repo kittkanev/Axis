@@ -46,6 +46,7 @@ private class AxisAssistantSession(context: Context) : VoiceInteractionSession(c
     override val lifecycle: Lifecycle get() = registry
     override val savedStateRegistry get() = saved.savedStateRegistry
     private var view: ComposeView? = null
+    private var floating = false
     private val controller = AssistantController(context, app, ::openAxis, ::hide)
 
     init { setTheme(R.style.Theme_Axis_Assistant) }
@@ -65,9 +66,19 @@ private class AxisAssistantSession(context: Context) : VoiceInteractionSession(c
         setContent { AssistantPanel(app, controller, ::pinOverlay) }
     }
 
+    override fun onPrepareShow(args: Bundle?, showFlags: Int) {
+        super.onPrepareShow(args, showFlags)
+        floating = FloatingAssistantService.start(context, expand = true)
+        setUiEnabled(!floating)
+    }
+
     @Suppress("DEPRECATION") // Also request resize on Android 10.
     override fun onShow(args: Bundle?, showFlags: Int) {
         super.onShow(args, showFlags)
+        if (floating) {
+            hide()
+            return
+        }
         window?.window?.apply {
             setBackgroundDrawable(Color.TRANSPARENT.toDrawable())
             clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
@@ -131,7 +142,12 @@ class AssistantPanelActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        controller.show()
+        if (FloatingAssistantService.openRunning()) finish() else controller.show()
+    }
+
+    override fun onPostResume() {
+        super.onPostResume()
+        if (!isFinishing && FloatingAssistantService.start(this, expand = true)) finish()
     }
 
     override fun onStop() {

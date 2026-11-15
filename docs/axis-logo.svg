@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 144 144" width="144" height="144">
+  <title>Axis</title>
+  <defs>
+    <linearGradient id="axis" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#fff9df"/>
+      <stop offset=".54" stop-color="#ffaa98"/>
+      <stop offset="1" stop-color="#df5a53"/>
+    </linearGradient>
+  </defs>
+  <rect width="144" height="144" rx="37" fill="#171321"/>
+  <circle cx="72" cy="72" r="47" fill="url(#axis)"/>
+  <path fill="#371a27" fill-rule="evenodd" d="M72 43 99 99H89l-6-13H61l-6 13H45zm0 16-7 17h14z"/>
+</svg>

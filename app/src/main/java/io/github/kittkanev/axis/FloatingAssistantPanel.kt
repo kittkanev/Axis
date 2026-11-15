@@ -1,5 +1,6 @@
 package io.github.kittkanev.axis
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -26,6 +27,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -37,12 +40,14 @@ internal fun FloatingAssistantPanel(
     actions: AssistantController,
     microphone: () -> Unit,
     editorFocus: (Boolean) -> Unit,
+    request: Int,
+    settings: () -> Unit,
 ) {
     val prefs by app.preferences.state.collectAsState()
     val input by actions.state.collectAsState()
     val speaking by actions.voice.speaking.collectAsState()
     val focus = LocalFocusManager.current
-    var expanded by remember { mutableStateOf(false) }
+    var expanded by remember(request) { mutableStateOf(request != 0) }
     var editing by remember { mutableStateOf(false) }
     var disclose by remember { mutableStateOf(false) }
     val recording = input.listening || input.finishingSpeech
@@ -125,6 +130,7 @@ internal fun FloatingAssistantPanel(
                     val label = if (show) "Свернуть панель" else "Развернуть панель"
                     IconButton(onClick = {
                         expanded = !show
+                        if (expanded) actions.playOpeningSound()
                         if (!expanded) {
                             focus.clearFocus()
                             editing = false
@@ -142,6 +148,15 @@ internal fun FloatingAssistantPanel(
                         editing = false
                         editorFocus(false)
                         microphone()
+                    }
+                    IconButton(onClick = {
+                        focus.clearFocus()
+                        editing = false
+                        editorFocus(false)
+                        settings()
+                    }) {
+                        Image(painterResource(R.drawable.ic_axis_settings), "Настройки оверлея",
+                            Modifier.size(23.dp), colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.onSurface))
                     }
                     PanelIcon("Закрыть плавающую панель", false, actions::close)
                 }

@@ -74,7 +74,7 @@ internal data class Workspace(
     }
 }
 
-internal class AxisException(message: String) : Exception(message)
+internal class AxisException(message: String, val httpStatus: Int? = null) : Exception(message)
 
 internal fun validateProfile(input: ProfileInput, existing: Profile?): ProfileSettings {
     val name = input.name.trim()

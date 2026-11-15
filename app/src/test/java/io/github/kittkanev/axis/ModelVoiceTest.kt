@@ -12,7 +12,7 @@ class ModelVoiceTest {
 
     @Test
     fun profileVoiceRoundTripsAndRejectsInvalidSettings() {
-        val voice = ModelVoice("de-DE", "custom", 1.2f, 0.8f)
+        val voice = ModelVoice("de-DE", "custom", 1.2f, 0.8f, "Aoede", SpeechStyle.WARM)
         assertEquals(voice, voice.toJson().toModelVoice())
         val invalid = JSONObject().put("language", "invalid").put("rate", 2).put("pitch", 0)
         assertEquals(ModelVoice(rate = 1.5f, pitch = 0.7f), invalid.toModelVoice())

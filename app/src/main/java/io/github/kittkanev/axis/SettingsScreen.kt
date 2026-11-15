@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -28,6 +29,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
@@ -49,8 +51,10 @@ internal fun ColumnScope.SettingsScreen(
     ) {
         Section("Системный ассистент") {
             Text(if (assistantActive) "Axis выбран в Android" else "Axis пока не выбран в Android")
-            Button(onClick = chooseAssistant) { Text("Выбрать ассистента") }
-            Text("Долгое нажатие кнопки питания, кнопки «Домой» или жест из угла зависят от настроек телефона. Ctrl + Shift + пробел открывает оверлей внутри Axis.")
+            Button(onClick = chooseAssistant) {
+                Text(if (assistantActive) "Настройки ассистента Android" else "Сделать Axis ассистентом")
+            }
+            Text("При жестовой навигации проведите из нижнего угла. Если прошивка не передаёт этот жест, используйте назначенное сочетание Android или плитку Axis.")
             OutlinedButton(onClick = addTile) { Text("Добавить плитку Axis") }
             OutlinedButton(onClick = preview) { Text("Открыть оверлей") }
         }
@@ -89,17 +93,39 @@ internal fun ColumnScope.OverlaySettingsScreen(
     prefs: AxisPreferences,
     update: (AxisPreferences) -> Unit,
     allowed: Boolean,
+    running: Boolean,
+    accessibilityConnected: Boolean,
     start: () -> Unit,
     stop: () -> Unit,
     preview: () -> Unit,
+    accessibilitySettings: () -> Unit,
+    deviceSettings: () -> Unit,
 ) {
+    var accessibilityConsent by remember { mutableStateOf(false) }
     Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Section("Плавающая панель") {
-            Button(onClick = start) { Text(if (allowed) "Показать поверх приложений" else "Разрешить показ поверх приложений") }
-            if (allowed) OutlinedButton(onClick = stop) { Text("Закрыть плавающую панель") }
+            if (running) {
+                Text("Панель работает поверх приложений")
+                OutlinedButton(onClick = stop) { Text("Закрыть плавающую панель") }
+            } else {
+                Button(onClick = start) { Text(if (allowed) "Показать поверх приложений" else "Разрешить показ поверх приложений") }
+            }
             OutlinedButton(onClick = preview) { Text("Открыть голосовой оверлей") }
-            Text("Android может скрывать панель на экране блокировки и защищённых экранах.")
+            Text("На экране блокировки панель скрыта.")
+            AxisSwitch("Звук при открытии", prefs.openingSound) { update(prefs.copy(openingSound = it)) }
+        }
+        Section("Работа в других приложениях") {
+            AxisSwitch("Панель через специальные возможности", prefs.accessibilityOverlay) {
+                update(prefs.copy(accessibilityOverlay = it))
+            }
+            if (prefs.accessibilityOverlay && !accessibilityConnected) {
+                OutlinedButton(onClick = { accessibilityConsent = true }) { Text("Подключить службу Axis") }
+            }
+            if (isXiaomiDevice) {
+                Text("На POCO, Xiaomi и Redmi разрешите всплывающие окна в фоне. Если панель всё ещё исчезает, выберите для Axis «Нет ограничений» в настройках батареи.")
+                OutlinedButton(onClick = deviceSettings) { Text("Открыть настройки Axis в Android") }
+            }
         }
         Section("Внешний вид") {
             AxisPicker("Цвет сферы", if (prefs.customColor == null) prefs.accent.label else "Свой цвет",
@@ -132,6 +158,16 @@ internal fun ColumnScope.OverlaySettingsScreen(
             Slider(prefs.overlayOffset.toFloat(), { update(prefs.copy(overlayOffset = it.roundToInt())) }, valueRange = 0f..96f)
         }
     }
+    if (accessibilityConsent) AlertDialog(
+        onDismissRequest = { accessibilityConsent = false },
+        title = { Text("Служба Axis") },
+        text = { Text("Служба показывает панель поверх приложений и может читать доступные элементы экрана для ваших команд управления. Данные экрана передаются модели после выбора команды экрану.") },
+        confirmButton = { TextButton(onClick = {
+            accessibilityConsent = false
+            accessibilitySettings()
+        }) { Text("Настройки Android") } },
+        dismissButton = { TextButton(onClick = { accessibilityConsent = false }) { Text("Отмена") } },
+    )
 }
 
 @Composable
@@ -146,9 +182,10 @@ internal fun Section(title: String, content: @Composable ColumnScope.() -> Unit)
 
 @Composable
 internal fun AxisSwitch(label: String, checked: Boolean, change: (Boolean) -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    Row(Modifier.toggleable(checked, role = Role.Switch, onValueChange = change),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(label, Modifier.weight(1f))
-        Switch(checked, change)
+        Switch(checked, onCheckedChange = null)
     }
 }
 
@@ -194,6 +231,9 @@ internal fun VoiceEditor(
                 if (neural != null && ProviderPreset.forUrl(profile.baseUrl) == ProviderPreset.GOOGLE) {
                     AxisPicker("Голос Gemini", geminiVoices.getValue(neural), geminiVoices.toList()) {
                         setting = setting.copy(neuralVoice = it)
+                    }
+                    AxisPicker("Манера речи", setting.speechStyle.label, SpeechStyle.entries.map { it to it.label }) {
+                        setting = setting.copy(speechStyle = it)
                     }
                     Text("Gemini получает текст для озвучивания отдельным запросом.")
                 }

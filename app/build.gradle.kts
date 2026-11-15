@@ -4,16 +4,19 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val preview = providers.gradleProperty("axisPreview").orNull == "true"
+
 android {
     namespace = "io.github.kittkanev.axis"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "io.github.kittkanev.axis"
+        applicationId = if (preview) "io.github.kittkanev.axis.preview" else "io.github.kittkanev.axis"
+        manifestPlaceholders["axisLabel"] = if (preview) "Axis Preview" else "Axis"
         minSdk = 29
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.4.0"
+        versionCode = 6
+        versionName = "0.4.1"
     }
 
     buildFeatures { compose = true }
