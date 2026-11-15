@@ -69,14 +69,15 @@ def main():
           "--ez", "io.github.kittkanev.axis.OPEN_OVERLAY", "true")
     tap("Показать поверх приложений")
     assert_overlay("APPLICATION_OVERLAY")
-    drag_sphere()
 
     shell("am", "start", "-W", "-a", "android.settings.SETTINGS")
     assert_foreground("com.android.settings")
     # Android may protect Settings by hiding non-system overlays.
     assert_overlay("APPLICATION_OVERLAY", allow_system_hidden=True)
-    shell("input", "keyevent", "KEYCODE_HOME")
+    home = shell("am", "start", "-W", "-a", "android.intent.action.MAIN", "-c", "android.intent.category.HOME")
+    assert "Status: ok" in home, home
     assert_overlay("APPLICATION_OVERLAY")
+    drag_sphere()
 
     start()
     shell("settings", "put", "secure", "enabled_accessibility_services", component("DeviceControlService"))
