@@ -13,6 +13,8 @@ android {
     defaultConfig {
         applicationId = if (preview) "io.github.kittkanev.axis.preview" else "io.github.kittkanev.axis"
         manifestPlaceholders["axisLabel"] = if (preview) "Axis Preview" else "Axis"
+        manifestPlaceholders["axisAccessibilityLabel"] =
+            if (preview) "Axis Preview" else "@string/device_control_label"
         minSdk = 29
         targetSdk = 35
         versionCode = 6

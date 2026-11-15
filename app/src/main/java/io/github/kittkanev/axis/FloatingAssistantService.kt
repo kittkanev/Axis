@@ -65,7 +65,7 @@ class FloatingAssistantService : Service(), SavedStateRegistryOwner {
                 setEditorFocus(false)
                 showRequest = 0
                 view?.visibility = android.view.View.GONE
-            } else {
+            } else if (screenOff && !getSystemService(KeyguardManager::class.java).isKeyguardLocked) {
                 screenOff = false
                 view?.visibility = android.view.View.VISIBLE
                 controller.show(autoListen = false, playSound = false)
@@ -84,6 +84,7 @@ class FloatingAssistantService : Service(), SavedStateRegistryOwner {
         }, ::stopSelf, keepOpen = true)
         ContextCompat.registerReceiver(this, screenState, IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_SCREEN_ON)
             addAction(Intent.ACTION_USER_PRESENT)
         }, ContextCompat.RECEIVER_NOT_EXPORTED)
         scope.launch {
@@ -196,7 +197,8 @@ class FloatingAssistantService : Service(), SavedStateRegistryOwner {
         if (screenOff) return
         showRequest++
         controller.playOpeningSound()
-        if (app.preferences.state.value.autoListen &&
+        val input = controller.state.value
+        if (app.preferences.state.value.autoListen && !input.listening && !input.finishingSpeech &&
             checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         ) toggleMicrophone()
     }

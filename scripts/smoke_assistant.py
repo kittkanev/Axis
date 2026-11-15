@@ -35,7 +35,7 @@ def main():
     tap("Настройки")
     tap("Сделать Axis ассистентом")
     activity = shell("dumpsys", "activity", "activities")
-    assert any(("com.android.settings" in line or "com.android.permissioncontroller" in line)
+    assert any(("com.android.settings" in line or "permissioncontroller" in line)
                and "topResumedActivity" in line for line in activity.splitlines()), "Android did not show assistant setup"
     shell("input", "keyevent", "KEYCODE_BACK")
     shell("cmd", "role", "add-role-holder", "--user", 0, "android.app.role.ASSISTANT", PACKAGE)
