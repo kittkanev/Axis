@@ -29,6 +29,9 @@ def main():
     assert "Success" in adb("install", "--no-incremental", "-r", APK, timeout=150)
     start()
     wait_for("Подключите модель")
+    tap("Чат")
+    tap("Настройка Axis")
+    wait_for("Разрешить микрофон")
     tap("Открыть модели")
     tap("Добавить профиль")
     wait_for("Google AI Studio")
@@ -75,9 +78,17 @@ def main():
         tap("Ввести текст")
         wait_for("Сообщение")
         tap("Сообщение")
-        shell("input", "text", "Open%sSettings")
+        shell("input", "text", "Open%sSettings%sand%sgo%sto%sAbout%sphone")
         tap("Отправить")
-        assert "com.android.settings" in shell("dumpsys", "activity", "activities")
+        deadline = time.monotonic() + 15
+        while True:
+            activities = shell("dumpsys", "activity", "activities")
+            if any("com.android.settings" in line and "DeviceInfo" in line and "topResumedActivity" in line
+                   for line in activities.splitlines()):
+                break
+            if time.monotonic() >= deadline:
+                raise AssertionError(f"About phone did not open:\n{activities}")
+            time.sleep(1)
     except AssertionError:
         print(shell("logcat", "-b", "crash", "-d", "-t", 70), flush=True)
         raise

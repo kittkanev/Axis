@@ -56,7 +56,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 private enum class Screen(val label: String) {
-    CHAT("Чат"), MODELS("Модели"), DEVICE("Управление"), DOCUMENTS("Файлы"), OVERLAY("Оверлей"), SETTINGS("Настройки")
+    CHAT("Чат"), SETUP("Настройка Axis"), MODELS("Модели"), DEVICE("Управление"), DOCUMENTS("Файлы"), OVERLAY("Оверлей"), SETTINGS("Настройки")
 }
 
 @Composable
@@ -74,6 +74,7 @@ internal fun AxisApp(
     openPanel: () -> Unit,
     assistantSetup: (() -> Unit)?,
     settings: @Composable ColumnScope.() -> Unit,
+    tutorial: @Composable ColumnScope.(openModels: () -> Unit, openOverlay: () -> Unit, openSettings: () -> Unit) -> Unit,
     overlaySettings: @Composable ColumnScope.() -> Unit,
     overlaySettingsRequested: Boolean,
     consumeOverlaySettings: () -> Unit,
@@ -118,7 +119,18 @@ internal fun AxisApp(
                     setDraft = model::setDraft,
                     openModels = { page = Screen.MODELS },
                     send = {
-                        val requestedApp = directAppQuery(draft)
+                        val aboutPhone = isAboutPhoneCommand(draft)
+                        val requestedApp = if (aboutPhone) null else directAppQuery(draft)
+                        if (aboutPhone) {
+                            if (openAboutPhone(context)) {
+                                model.setDraft("")
+                                return@Chat
+                            }
+                            if (active == null) {
+                                model.report("Android не открыл раздел «О телефоне».")
+                                return@Chat
+                            }
+                        }
                         if (requestedApp != null) {
                             try {
                                 launchRequestedApp(context, requestedApp)
@@ -127,7 +139,9 @@ internal fun AxisApp(
                                 model.report(e.message)
                             }
                         } else {
-                            model.send(draft) { model.setDraft("") }
+                            model.send(draft, automate = prefs.autoControl && isDeviceCommand(draft)) {
+                                model.setDraft("")
+                            }
                         }
                     },
                     cancel = model::cancelRequest,
@@ -136,6 +150,7 @@ internal fun AxisApp(
                     speak = speak,
                     stopVoice = stopVoice,
                 )
+                page == Screen.SETUP -> tutorial({ page = Screen.MODELS }, { page = Screen.OVERLAY }, { page = Screen.SETTINGS })
                 page == Screen.MODELS -> Models(state, model, voices, prepareVoices, previewVoice, stopVoice)
                 page == Screen.SETTINGS -> settings()
                 page == Screen.OVERLAY -> overlaySettings()
@@ -260,7 +275,7 @@ private fun ColumnScope.Chat(
             OutlinedButton(onClick = { confirmVoice = true }, enabled = ready) { Text("Микрофон") }
             Button(
                 onClick = { focus.clearFocus(); send() },
-                enabled = ready && draft.isNotBlank() && (active != null || directAppQuery(draft) != null),
+                enabled = ready && draft.isNotBlank() && (active != null || directAppQuery(draft) != null || isAboutPhoneCommand(draft)),
             ) { Text("Отправить") }
         }
     }

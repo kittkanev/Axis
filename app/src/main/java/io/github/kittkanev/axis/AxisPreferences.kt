@@ -22,6 +22,8 @@ internal enum class OverlayPosition(val label: String) {
     LEFT("Слева"), CENTER("По центру"), RIGHT("Справа"),
 }
 
+internal data class OverlayAnchor(val x: Float, val y: Float)
+
 internal data class AxisPreferences(
     val theme: ThemeMode = ThemeMode.SYSTEM,
     val accent: Accent = Accent.CORAL,
@@ -33,10 +35,14 @@ internal data class AxisPreferences(
     val overlayPosition: OverlayPosition = OverlayPosition.RIGHT,
     val overlayOpacity: Float = .95f,
     val overlayOffset: Int = 32,
+    val overlayAnchor: OverlayAnchor? = null,
     val compactSize: Int = 48,
     val customColor: Long? = null,
 
     val autoListen: Boolean = false,
+    val wakeWord: Boolean = false,
+    val wakeLanguage: String = "ru-RU",
+    val autoControl: Boolean = false,
     val autoSpeak: Boolean = true,
     val autoSend: Boolean = true,
     val recognitionLanguage: String = "ru-RU",
@@ -56,10 +62,16 @@ internal class AxisPreferenceStore(application: Application) {
             overlayPosition = OverlayPosition.entries.firstOrNull { it.name == disk.getString("overlayPosition", null) } ?: OverlayPosition.RIGHT,
             overlayOpacity = disk.getFloat("overlayOpacity", .95f).coerceIn(.35f, 1f),
             overlayOffset = disk.getInt("overlayOffset", 32).coerceIn(0, 96),
+            overlayAnchor = if (disk.contains("overlayX") && disk.contains("overlayY")) {
+                OverlayAnchor(disk.getFloat("overlayX", 1f).coerceIn(0f, 1f), disk.getFloat("overlayY", 1f).coerceIn(0f, 1f))
+            } else null,
             compactSize = disk.getInt("compactSize", 48).coerceIn(38, 64),
             customColor = disk.getLong("customColor", -1L).takeIf { it in 0xFF000000L..0xFFFFFFFFL },
 
             autoListen = disk.getBoolean("autoListen", false),
+            wakeWord = disk.getBoolean("wakeWord", false),
+            wakeLanguage = if (disk.getString("wakeLanguage", null) == "en-US") "en-US" else "ru-RU",
+            autoControl = disk.getBoolean("autoControl", false),
             autoSpeak = disk.getBoolean("autoSpeak", true),
             autoSend = disk.getBoolean("autoSend", true),
             recognitionLanguage = disk.getString("recognitionLanguage", "ru-RU")
@@ -71,6 +83,9 @@ internal class AxisPreferenceStore(application: Application) {
     fun update(value: AxisPreferences) {
         current.value = value
         disk.edit {
+            val anchor = value.overlayAnchor
+            if (anchor == null) remove("overlayX").remove("overlayY")
+            else putFloat("overlayX", anchor.x).putFloat("overlayY", anchor.y)
             putString("theme", value.theme.name).putString("accent", value.accent.name)
                 .putFloat("dim", value.dim).putInt("orbSize", value.orbSize).putBoolean("motion", value.motion)
                 .putBoolean("openingSound", value.openingSound).putBoolean("accessibilityOverlay", value.accessibilityOverlay)
@@ -78,7 +93,8 @@ internal class AxisPreferenceStore(application: Application) {
                 .putFloat("overlayOpacity", value.overlayOpacity).putInt("overlayOffset", value.overlayOffset)
                 .putInt("compactSize", value.compactSize).putLong("customColor", value.customColor ?: -1L)
                 .putBoolean("autoListen", value.autoListen).putBoolean("autoSpeak", value.autoSpeak)
-                .putBoolean("autoSend", value.autoSend)
+                .putBoolean("autoSend", value.autoSend).putBoolean("autoControl", value.autoControl)
+                .putBoolean("wakeWord", value.wakeWord).putString("wakeLanguage", value.wakeLanguage)
                 .putString("recognitionLanguage", value.recognitionLanguage)
         }
     }

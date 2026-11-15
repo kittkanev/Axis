@@ -1,7 +1,11 @@
 package io.github.kittkanev.axis
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -41,12 +45,22 @@ internal fun FloatingAssistantPanel(
     microphone: () -> Unit,
     editorFocus: (Boolean) -> Unit,
     request: Int,
+    drag: (Offset) -> Unit,
+    finishDrag: () -> Unit,
     settings: () -> Unit,
 ) {
     val prefs by app.preferences.state.collectAsState()
     val input by actions.state.collectAsState()
     val speaking by actions.voice.speaking.collectAsState()
     val focus = LocalFocusManager.current
+    val onDrag by rememberUpdatedState(drag)
+    val onFinish by rememberUpdatedState(finishDrag)
+    val dragHandle = Modifier.pointerInput(Unit) {
+        detectDragGestures(onDragEnd = { onFinish() }, onDragCancel = { onFinish() }) { change, amount ->
+            change.consume()
+            onDrag(amount)
+        }
+    }
     var expanded by remember(request) { mutableStateOf(request != 0) }
     var editing by remember { mutableStateOf(false) }
     var disclose by remember { mutableStateOf(false) }
@@ -67,6 +81,8 @@ internal fun FloatingAssistantPanel(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 if (show) {
+                    Text("Потяните для перемещения", dragHandle.fillMaxWidth().padding(horizontal = 12.dp, vertical = 7.dp),
+                        style = MaterialTheme.typography.labelSmall)
                     Column(Modifier.fillMaxWidth().heightIn(max = panelHeight).verticalScroll(rememberScrollState()).padding(10.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         when {
@@ -138,7 +154,7 @@ internal fun FloatingAssistantPanel(
                             actions.collapse()
                             editorFocus(false)
                         }
-                    }, modifier = Modifier.size((sphereSize + 4).dp).semantics { contentDescription = label }) {
+                    }, modifier = dragHandle.size((sphereSize + 4).dp).semantics { contentDescription = label }) {
                         AxisOrb(Modifier.size(sphereSize.dp), prefs.accent, prefs.motion,
                             recording || input.waiting || speaking, input.audioLevel, prefs.tint)
                     }

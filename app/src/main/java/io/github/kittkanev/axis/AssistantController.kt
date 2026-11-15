@@ -36,6 +36,7 @@ internal class AssistantController(
     private val closePanel: () -> Unit,
     private val keepOpen: Boolean = false,
     private val launchApp: (DeviceApp) -> Boolean = { openApp(context, it) },
+    private val beforeRecording: () -> Unit = {},
 ) {
     private val current = MutableStateFlow(AssistantInput())
     val state = current.asStateFlow()
@@ -162,6 +163,7 @@ internal class AssistantController(
             openAxis(true)
             return
         }
+        beforeRecording()
         voice.stop()
         val instance = try {
             createDeviceRecognizer(context)
@@ -217,6 +219,16 @@ internal class AssistantController(
         }
     }
 
+    fun activateFromWake(command: String) {
+        if (!visible || !unlocked() || current.value.waiting) return
+        current.update { it.copy(screen = null, proposal = null) }
+        if (command.isBlank()) startListening()
+        else {
+            edit(command)
+            if (app.preferences.state.value.autoSend) submit(voiceTurn = true)
+        }
+    }
+
     fun send() = submit(voiceTurn = true)
 
     private fun submit(voiceTurn: Boolean) {
@@ -228,7 +240,13 @@ internal class AssistantController(
         if (text.isEmpty() || current.value.waiting || recognizer != null) return
         val screen = current.value.screen
         if (current.value.proposal != null) return
-        val requestedApp = if (screen == null) directAppQuery(text) else null
+        val aboutPhone = screen == null && isAboutPhoneCommand(text)
+        if (aboutPhone && openAboutPhone(context)) {
+            current.update { it.copy(draft = "", reply = "Раздел «О телефоне» открыт.", error = null) }
+            if (!keepOpen) close()
+            return
+        }
+        val requestedApp = if (screen == null && !aboutPhone) directAppQuery(text) else null
         if (requestedApp != null) {
             try {
                 launch(requestedApp(context, requestedApp))
@@ -246,7 +264,7 @@ internal class AssistantController(
         }
         val profile = snapshot.workspace.active
         if (profile == null) {
-            fail("Добавьте профиль модели в Axis.")
+            fail(if (aboutPhone) "Android не открыл раздел «О телефоне»." else "Добавьте профиль модели в Axis.")
             return
         }
 
@@ -254,18 +272,25 @@ internal class AssistantController(
         voice.stop()
         current.update { it.copy(waiting = true, reply = "", error = null) }
         var replied = false
-        val job = model.send(text, voiceTurn = voiceTurn, openModelApp = ::launch, screen = screen, onTool = { proposal ->
-            replied = true
-            if (visible && token == requestNumber) {
-                current.update { it.copy(draft = "", screen = null, proposal = proposal, waiting = false) }
-            }
-        }, onReply = { reply ->
-            replied = true
-            if (visible && token == requestNumber) {
-                current.update { it.copy(draft = "", reply = reply, screen = null, waiting = false) }
-                if (app.preferences.state.value.autoSpeak) model.speak(voice, profile, reply, profile.voice, ::fail)
-            }
-        }, onSaved = {})
+        val automate = app.preferences.state.value.autoControl && (screen != null || isDeviceCommand(text))
+        val job = model.send(
+            text, voiceTurn = voiceTurn, openModelApp = { launch(it, keepForSequence = automate) },
+            screen = screen, automate = automate,
+            onTool = { proposal ->
+                replied = true
+                if (visible && token == requestNumber) {
+                    current.update { it.copy(draft = "", screen = null, proposal = proposal, waiting = false) }
+                }
+            },
+            onReply = { reply ->
+                replied = true
+                if (visible && token == requestNumber) {
+                    current.update { it.copy(draft = "", reply = reply, screen = null, waiting = false) }
+                    if (app.preferences.state.value.autoSpeak) model.speak(voice, profile, reply, profile.voice, ::fail)
+                }
+            },
+            onSaved = {},
+        )
         request = job
         if (job == null) {
             current.update { it.copy(waiting = false) }
@@ -279,10 +304,10 @@ internal class AssistantController(
         }
     }
 
-    private fun launch(target: DeviceApp): Boolean {
+    private fun launch(target: DeviceApp, keepForSequence: Boolean = false): Boolean {
         if (!visible || !unlocked()) return false
         if (!launchApp(target)) throw AxisException("Не удалось открыть «${target.label}».")
-        if (!keepOpen) {
+        if (!keepOpen && !keepForSequence) {
             visible = false
             closePanel()
         }

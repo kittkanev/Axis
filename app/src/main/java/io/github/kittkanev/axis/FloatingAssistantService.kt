@@ -14,12 +14,16 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.provider.Settings
 import android.view.Gravity
 import android.view.WindowManager
+import android.view.WindowInsets
+import androidx.compose.ui.geometry.Offset
+import kotlin.math.roundToInt
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.ComposeView
@@ -55,12 +59,18 @@ class FloatingAssistantService : Service(), SavedStateRegistryOwner {
     private var view: ComposeView? = null
     private lateinit var layout: WindowManager.LayoutParams
     private var micForeground = false
+    private var wakeArmed = false
+    private var externalDictation = false
+    private lateinit var wake: WakeWordListener
+    private var dragPosition: Offset? = null
+    private var dragAnchor: OverlayAnchor? = null
     private var screenOff = false
     private var showRequest by mutableIntStateOf(0)
     private val screenState = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action == Intent.ACTION_SCREEN_OFF) {
                 screenOff = true
+                refreshWake()
                 controller.hide()
                 setEditorFocus(false)
                 showRequest = 0
@@ -69,6 +79,7 @@ class FloatingAssistantService : Service(), SavedStateRegistryOwner {
                 screenOff = false
                 view?.visibility = android.view.View.VISIBLE
                 controller.show(autoListen = false, playSound = false)
+                refreshWake()
             }
         }
     }
@@ -81,7 +92,14 @@ class FloatingAssistantService : Service(), SavedStateRegistryOwner {
         controller = AssistantController(this, app, { askMicrophone ->
             if (askMicrophone) openMicrophone()
             else openActivity(mainIntent(this))
-        }, ::stopSelf, keepOpen = true)
+        }, ::stopSelf, keepOpen = true, beforeRecording = { wake.update(null) })
+        wake = WakeWordListener(this, detected = { command ->
+            if (!screenOff && wakeArmed && app.preferences.state.value.wakeWord) {
+                showRequest++
+                controller.activateFromWake(command)
+                refreshWake()
+            }
+        }, state = { wakeState.value = it })
         ContextCompat.registerReceiver(this, screenState, IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_OFF)
             addAction(Intent.ACTION_SCREEN_ON)
@@ -94,12 +112,12 @@ class FloatingAssistantService : Service(), SavedStateRegistryOwner {
                         app.workspace.report("Плавающая панель недоступна. Проверьте разрешения Axis.")
                         stopSelf()
                     }
+                    if (!prefs.wakeWord) wakeArmed = false
+                    refreshWake()
                 }
         }
         scope.launch {
-            controller.state.collect { input ->
-                if (micForeground && !input.listening && !input.finishingSpeech) foreground(false)
-            }
+            combine(controller.state, controller.voice.speaking) { _, _ -> Unit }.collect { refreshWake() }
         }
     }
 
@@ -108,9 +126,15 @@ class FloatingAssistantService : Service(), SavedStateRegistryOwner {
             stopSelf()
             return START_NOT_STICKY
         }
+        val requestWake = intent?.action == ACTION_WAKE && app.preferences.state.value.wakeWord
         try {
-            foreground(micForeground || intent?.action == ACTION_MIC)
+            foreground(micForeground || requestWake || intent?.action == ACTION_MIC)
+            if (requestWake) {
+                wake.update(null)
+                wakeArmed = true
+            }
         } catch (_: RuntimeException) {
+            if (requestWake) wakeState.value = WakeStatus.UNAVAILABLE
             if (view == null) stopSelf()
             else controller.report("Android не разрешил включить микрофон.")
             return START_NOT_STICKY
@@ -126,13 +150,21 @@ class FloatingAssistantService : Service(), SavedStateRegistryOwner {
         active = this
         running.value = true
         if (expanded) expand()
-        if (intent?.action == ACTION_MIC) {
-            controller.toggleMicrophone()
-            if (!controller.state.value.listening && !controller.state.value.finishingSpeech && micForeground) {
-                foreground(false)
-            }
-        }
+        if (intent?.action == ACTION_MIC) controller.toggleMicrophone()
+        refreshWake()
         return START_STICKY
+    }
+
+    private fun refreshWake() {
+        val prefs = app.preferences.state.value
+        val input = controller.state.value
+        val recording = input.listening || input.finishingSpeech
+        if (wakeArmed && !screenOff && !externalDictation && !recording && !input.waiting &&
+            input.screen == null && input.proposal == null && !controller.voice.speaking.value
+        ) wake.update(prefs.wakeLanguage)
+        else wake.update(null)
+
+        if (micForeground && !wakeArmed && !recording) foreground(false)
     }
 
     private fun ensureWindow(prefs: AxisPreferences): Boolean {
@@ -163,9 +195,15 @@ class FloatingAssistantService : Service(), SavedStateRegistryOwner {
             setViewTreeLifecycleOwner(this@FloatingAssistantService)
             setViewTreeSavedStateRegistryOwner(this@FloatingAssistantService)
             setContent {
-                FloatingAssistantPanel(app, controller, ::toggleMicrophone, ::setEditorFocus, showRequest) {
+                FloatingAssistantPanel(app, controller, ::toggleMicrophone, ::setEditorFocus, showRequest,
+                    drag = ::dragPanel, finishDrag = ::finishDrag) {
                     openActivity(overlayIntent(this@FloatingAssistantService))
                 }
+            }
+        }
+        panel.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+            if (panel === view && (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop)) {
+                panel.post { if (panel === view) reposition(app.preferences.state.value) }
             }
         }
         screenOff = screenOff || getSystemService(KeyguardManager::class.java).isKeyguardLocked
@@ -186,6 +224,8 @@ class FloatingAssistantService : Service(), SavedStateRegistryOwner {
     private fun detachWindow() {
         val panel = view ?: return
         view = null
+        dragPosition = null
+        dragAnchor = null
         if (panel.isAttachedToWindow) {
             try { windows?.removeViewImmediate(panel) } catch (_: IllegalArgumentException) { }
         }
@@ -214,7 +254,9 @@ class FloatingAssistantService : Service(), SavedStateRegistryOwner {
     private fun toggleMicrophone() {
         val input = controller.state.value
         if (input.listening || input.finishingSpeech) controller.toggleMicrophone()
-        else if (!input.waiting && input.screen == null && input.proposal == null) openMicrophone()
+        else if (!input.waiting && input.screen == null && input.proposal == null) {
+            if (micForeground) controller.toggleMicrophone() else openMicrophone()
+        }
     }
 
     private fun openMicrophone() {
@@ -231,15 +273,76 @@ class FloatingAssistantService : Service(), SavedStateRegistryOwner {
         }
     }
 
+    @Suppress("DEPRECATION")
+    private fun availableFrame(): Rect {
+        val manager = windows ?: return Rect()
+        if (Build.VERSION.SDK_INT >= 30) {
+            val metrics = manager.currentWindowMetrics
+            val insets = metrics.windowInsets.getInsetsIgnoringVisibility(
+                WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout(),
+            )
+            val bounds = metrics.bounds
+            return Rect(bounds.left + insets.left, bounds.top + insets.top,
+                bounds.right - insets.right, bounds.bottom - insets.bottom)
+        }
+        return Rect().apply {
+            view?.getWindowVisibleDisplayFrame(this)
+            if (isEmpty) set(0, 0, resources.displayMetrics.widthPixels, resources.displayMetrics.heightPixels)
+        }
+    }
+
+    private fun dragPanel(delta: Offset) {
+        val panel = view ?: return
+        val frame = availableFrame()
+        val maxX = (frame.width() - panel.width).coerceAtLeast(0)
+        val maxY = (frame.height() - panel.height).coerceAtLeast(0)
+        val start = dragPosition ?: IntArray(2).let { location ->
+            panel.getLocationOnScreen(location)
+            Offset((location[0] - frame.left).toFloat(), (location[1] - frame.top).toFloat())
+        }
+        val x = (start.x + delta.x).coerceIn(0f, maxX.toFloat())
+        val y = (start.y + delta.y).coerceIn(0f, maxY.toFloat())
+        dragPosition = Offset(x, y)
+        dragAnchor = OverlayAnchor(
+            if (maxX == 0) 0f else x / maxX,
+            if (maxY == 0) 0f else y / maxY,
+        )
+        applyPosition(Gravity.TOP or Gravity.LEFT, x.roundToInt(), y.roundToInt())
+    }
+
+    private fun finishDrag() {
+        val anchor = dragAnchor ?: return
+        dragPosition = null
+        dragAnchor = null
+        app.preferences.update(app.preferences.state.value.copy(overlayAnchor = anchor))
+    }
+
     private fun reposition(prefs: AxisPreferences) {
-        layout.gravity = Gravity.BOTTOM or when (prefs.overlayPosition) {
+        if (dragPosition != null) return
+        val custom = prefs.overlayAnchor
+        val panel = view
+        if (custom != null && panel != null) {
+            val frame = availableFrame()
+            val width = (frame.width() - panel.width).coerceAtLeast(0)
+            val height = (frame.height() - panel.height).coerceAtLeast(0)
+            applyPosition(Gravity.TOP or Gravity.LEFT, (width * custom.x).roundToInt(), (height * custom.y).roundToInt())
+            return
+        }
+        val gravity = Gravity.BOTTOM or when (prefs.overlayPosition) {
             OverlayPosition.LEFT -> Gravity.LEFT
             OverlayPosition.CENTER -> Gravity.CENTER_HORIZONTAL
             OverlayPosition.RIGHT -> Gravity.RIGHT
         }
         val density = resources.displayMetrics.density
-        layout.x = if (prefs.overlayPosition == OverlayPosition.CENTER) 0 else (12 * density).toInt()
-        layout.y = (prefs.overlayOffset * density).toInt()
+        val x = if (prefs.overlayPosition == OverlayPosition.CENTER) 0 else (12 * density).toInt()
+        applyPosition(gravity, x, (prefs.overlayOffset * density).toInt())
+    }
+
+    private fun applyPosition(gravity: Int, x: Int, y: Int) {
+        if (layout.gravity == gravity && layout.x == x && layout.y == y) return
+        layout.gravity = gravity
+        layout.x = x
+        layout.y = y
         updateLayout()
     }
 
@@ -273,6 +376,8 @@ class FloatingAssistantService : Service(), SavedStateRegistryOwner {
     override fun onDestroy() {
         unregisterReceiver(screenState)
         scope.cancel()
+        wake.update(null)
+        wakeState.value = WakeStatus.PAUSED
         controller.hide()
         detachWindow()
         if (active === this) {
@@ -289,9 +394,18 @@ class FloatingAssistantService : Service(), SavedStateRegistryOwner {
         private const val CHANNEL = "axis-floating-overlay"
         private const val ACTION_STOP = "axis.stopOverlay"
         private const val ACTION_EXPAND = "axis.expandOverlay"
+        private const val ACTION_WAKE = "axis.armWakeWord"
         private var active: FloatingAssistantService? = null
         private val running = MutableStateFlow(false)
         internal val isRunning = running.asStateFlow()
+        private val wakeState = MutableStateFlow(WakeStatus.PAUSED)
+        internal val wakeStatus = wakeState.asStateFlow()
+
+        internal fun setExternalDictation(active: Boolean) {
+            val service = this.active ?: return
+            service.externalDictation = active
+            service.refreshWake()
+        }
         internal const val ACTION_MIC = "axis.startOverlayMicrophone"
 
         internal fun canStart(context: Context): Boolean =
@@ -306,13 +420,14 @@ class FloatingAssistantService : Service(), SavedStateRegistryOwner {
             return true
         }
 
-        internal fun start(context: Context, expand: Boolean = false): Boolean {
+        internal fun start(context: Context, expand: Boolean = false, armWake: Boolean = false): Boolean {
             if (expand && context.getSystemService(KeyguardManager::class.java).isKeyguardLocked) return false
             if (expand && openRunning()) return true
             if (!canStart(context)) return false
             return try {
                 val request = Intent(context, FloatingAssistantService::class.java)
-                if (expand) request.action = ACTION_EXPAND
+                if (armWake) request.action = ACTION_WAKE
+                else if (expand) request.action = ACTION_EXPAND
                 ContextCompat.startForegroundService(context, request)
                 true
             } catch (_: RuntimeException) {

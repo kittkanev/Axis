@@ -7,13 +7,17 @@ from smoke_assistant import invoke_assistant
 from smoke_release import APK, PACKAGE, adb, shell, start, tap, wait_for
 
 
+def find_overlay(windows):
+    return next((window for window in re.split(r"(?m)^  Window #", windows)
+                 if re.search(r"^\d+.*Axis floating assistant", window)), "")
+
+
 def assert_overlay(kind, min_height=0, allow_system_hidden=False):
     deadline = time.monotonic() + 25
     panel = ""
     while time.monotonic() < deadline:
         windows = shell("dumpsys", "window", "windows")
-        panel = next((window for window in re.split(r"(?m)^  Window #", windows)
-                      if re.search(r"^\d+.*Axis floating assistant", window)), "")
+        panel = find_overlay(windows)
         if not panel and kind is None:
             return
         if kind:
@@ -27,6 +31,27 @@ def assert_overlay(kind, min_height=0, allow_system_hidden=False):
                 return
         time.sleep(1)
     raise AssertionError(f"Unexpected Axis overlay: expected {kind}\n{panel[:5000]}")
+
+
+def current_overlay_frame():
+    panel = find_overlay(shell("dumpsys", "window", "-a", "windows"))
+    frame = re.search(r"(?i)frame=\[(\d+),(\d+)\]\[(\d+),(\d+)\]", panel)
+    assert frame, f"Overlay frame missing from window dump:\n{panel[:5000]}"
+    return tuple(map(int, frame.groups()))
+
+
+def drag_sphere():
+    left, top, _, bottom = current_overlay_frame()
+    x, y = left + 34, (top + bottom) // 2
+    shell("input", "swipe", x, y, x - 95, y - 180, 530)
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        moved_left, moved_top, _, moved_bottom = current_overlay_frame()
+        if moved_left < left - 35 and moved_top < top - 80 and moved_bottom - moved_top < 140:
+            return
+        time.sleep(0.5)
+    raise AssertionError(f"Dragging the collapsed sphere did not move it: {(left, top, bottom)} -> "
+                         f"{(moved_left, moved_top, moved_bottom)}")
 
 
 def assert_foreground(package):
@@ -44,6 +69,7 @@ def main():
           "--ez", "io.github.kittkanev.axis.OPEN_OVERLAY", "true")
     tap("Показать поверх приложений")
     assert_overlay("APPLICATION_OVERLAY")
+    drag_sphere()
 
     shell("am", "start", "-W", "-a", "android.settings.SETTINGS")
     assert_foreground("com.android.settings")

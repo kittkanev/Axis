@@ -17,9 +17,9 @@ An open-source Android assistant with a floating voice panel and models you conn
 ## Get started
 
 1. Download an APK from [GitHub Releases](https://github.com/kittkanev/Axis/releases) and open it on your phone. If the release offers **Axis Preview**, it installs alongside Axis with a separate workspace.
-2. In **Models (Модели)**, choose Google AI Studio, OpenAI, OpenRouter, DeepSeek, Groq, or your own OpenAI-compatible HTTPS endpoint. Enter your API key and select a model. Each profile has its own system prompt, voice, and enabled tools.
+2. Open **Axis setup (Настройка Axis)** in the app menu for an interactive checklist. In **Models (Модели)**, choose Google AI Studio, OpenAI, OpenRouter, DeepSeek, Groq, or your own OpenAI-compatible HTTPS endpoint. Enter your API key and select a model. Each profile has its own system prompt, voice, and enabled tools.
 3. Tap **Set Axis as assistant (Сделать Axis ассистентом)** and confirm in Android. On phones that expose the Android assistant gesture, swipe inward from a bottom corner. You can also use the Axis Quick Settings tile, the **Voice (Голос)** button, or **Ctrl + Shift + Space** inside Axis.
-4. For a panel that stays with you when you switch apps, open **Overlay (Оверлей)** and choose **Show over apps (Показать поверх приложений)**. Use the microphone to record or cancel a recording, the gear for overlay settings, and the close button to dismiss the panel.
+4. For a panel that stays with you when you switch apps, open **Overlay (Оверлей)** and choose **Show over apps (Показать поверх приложений)**. Use the microphone to record or cancel a recording, the gear for overlay settings, and the close button to dismiss the panel. Drag the sphere or the header of the expanded panel to move it. Axis saves the position.
 
 ## POCO, Xiaomi, and Redmi
 
@@ -34,7 +34,9 @@ Paths and labels vary by MIUI and HyperOS version. The overlay hides when the ph
 ## Voice, screen actions, and files
 
 - **Voice.** Android handles dictation. Axis can send the finished phrase after a pause. In **Models → Model voice (Голос модели)**, Google AI Studio profiles offer conversational Gemini speech with four delivery styles and a voice preview. Android voice and playback settings are also available.
-- **Screen actions.** Enable the Axis accessibility service. In the floating panel choose **Screen command (Команда экрану)**, select the screen and enter a command. Axis sends the request and visible control labels to the selected model. Confirm its proposed tap, text entry, scroll, or Back action. Axis rechecks the target window before acting. The **Device control (Управление)** screen also accepts manual plans, one action per line.
+- **Wake phrase.** In **Settings → Wake phrase (Активация по фразе)**, enable **Listen for “Аксис” or “Axis”** and select the recognition language. Say the phrase alone to start dictation or say it followed by your command. The wake listener requires Android 12 or later and a supported on-device speech recognizer with the language installed. It runs while the floating panel is active and the screen is unlocked. Close the floating panel to stop listening.
+- **Automatic screen actions.** Enable the Axis accessibility service and **Automatic actions without confirmation (Автовыполнение без подтверждений)** in Settings. A model with tool calling can open an app and continue with taps, text entry, or scrolling across its screens. Axis sends the current control labels for each step and offers **Stop request (Остановить запрос)** during execution. Try “Open Settings and go to About phone” for a system shortcut that works without an API key.
+- **Screen actions with confirmation.** Enable the Axis accessibility service. In the floating panel choose **Screen command (Команда экрану)**, select the screen and enter a command. Axis sends the request and visible control labels to the selected model. Confirm its proposed tap, text entry, scroll, or Back action. Axis rechecks the target window before acting. The **Device control (Управление)** screen also accepts manual plans, one action per line.
 - **Files.** Open UTF-8 TXT and Markdown files up to 128 KB through Android's file picker. Edit the text and save a separate copy.
 
 API keys are protected by Android Keystore. A normal model request sends the prompt and recent conversation to the selected provider. Gemini speech sends the reply text in a separate request. Axis does not send screenshots or document contents.

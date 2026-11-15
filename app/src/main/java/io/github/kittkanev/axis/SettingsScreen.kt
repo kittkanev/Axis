@@ -43,8 +43,15 @@ internal fun ColumnScope.SettingsScreen(
     addTile: () -> Unit,
     microphone: () -> Unit,
     preview: () -> Unit,
+    accessibilityConnected: Boolean,
+    accessibilitySettings: () -> Unit,
+    wakeStatus: WakeStatus,
+    wakeAvailable: Boolean,
+    wakeWord: (Boolean) -> Unit,
+    installWakeLanguage: (() -> Unit)?,
 ) {
     var consent by remember { mutableStateOf(false) }
+    var controlConsent by remember { mutableStateOf(false) }
     Column(
         Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -64,6 +71,41 @@ internal fun ColumnScope.SettingsScreen(
             }
 
         }
+        Section("Управление телефоном") {
+            AxisSwitch("Автовыполнение без подтверждений", prefs.autoControl) {
+                if (it) controlConsent = true else update(prefs.copy(autoControl = false))
+            }
+            Text("Axis выполняет шаги вашей команды по очереди. Инструменты настраиваются отдельно для каждой модели.")
+            if (!accessibilityConnected) {
+                OutlinedButton(onClick = accessibilitySettings) { Text("Подключить службу Axis") }
+            }
+        }
+        Section("Активация по фразе") {
+            if (wakeAvailable || prefs.wakeWord) {
+                AxisSwitch("Слушать «Аксис» или «Axis»", prefs.wakeWord, wakeWord)
+                if (prefs.wakeWord) {
+                    AxisPicker("Язык фразы", if (prefs.wakeLanguage == "ru-RU") "Русский" else "English",
+                        listOf("ru-RU" to "Русский", "en-US" to "English")) {
+                        update(prefs.copy(wakeLanguage = it))
+                    }
+                    Text(when (wakeStatus) {
+                        WakeStatus.LISTENING -> "Слушаю фразу. Скажите «Аксис» и команду."
+                        WakeStatus.PAUSED -> "Ожидание. Откройте плавающую панель или запустите прослушивание."
+                        WakeStatus.NEEDS_LANGUAGE -> "Загрузите язык для локального распознавания речи в Android."
+                        WakeStatus.UNAVAILABLE -> "Локальное распознавание недоступно. Проверьте микрофон и настройки речи в Android."
+                    })
+                    if (wakeStatus != WakeStatus.LISTENING) {
+                        OutlinedButton(onClick = { wakeWord(true) }) { Text("Запустить прослушивание") }
+                    }
+                    if (installWakeLanguage != null && wakeStatus != WakeStatus.LISTENING) {
+                        OutlinedButton(onClick = installWakeLanguage) { Text("Загрузить язык") }
+                    }
+                }
+                Text("Панель слушает ключевую фразу локально на разблокированном экране. Закройте панель, чтобы остановить прослушивание.")
+            } else {
+                Text("Требуется Android 12 или новее и поддержка локального распознавания речи на устройстве.")
+            }
+        }
         Section("Голосовой режим") {
             OutlinedButton(onClick = microphone) {
                 Text(if (microphoneAllowed) "Настройки микрофона" else "Разрешить микрофон")
@@ -79,6 +121,13 @@ internal fun ColumnScope.SettingsScreen(
             AxisSwitch("Озвучивать ответы в оверлее", prefs.autoSpeak) { update(prefs.copy(autoSpeak = it)) }
         }
     }
+    if (controlConsent) AlertDialog(
+        onDismissRequest = { controlConsent = false },
+        title = { Text("Выполнять команды без подтверждений?") },
+        text = { Text("При команде управления Axis отправляет выбранной модели доступные названия элементов экрана. Модель может нажимать, вводить текст и прокручивать экран по вашей команде. В процессе доступна кнопка «Остановить запрос».") },
+        confirmButton = { TextButton(onClick = { update(prefs.copy(autoControl = true)); controlConsent = false }) { Text("Включить") } },
+        dismissButton = { TextButton(onClick = { controlConsent = false }) { Text("Отмена") } },
+    )
     if (consent) AlertDialog(
         onDismissRequest = { consent = false },
         title = { Text("Начинать запись автоматически?") },
@@ -151,17 +200,19 @@ internal fun ColumnScope.OverlaySettingsScreen(
             AxisSwitch("Анимация", prefs.motion) { update(prefs.copy(motion = it)) }
         }
         Section("Расположение") {
-            AxisPicker("Положение панели", prefs.overlayPosition.label, OverlayPosition.entries.map { it to it.label }) {
-                update(prefs.copy(overlayPosition = it))
+            Text("Перетащите сферу или потяните за верх раскрытой панели.")
+            AxisPicker("Положение панели", if (prefs.overlayAnchor == null) prefs.overlayPosition.label else "Свободное",
+                OverlayPosition.entries.map { it to it.label }) {
+                update(prefs.copy(overlayPosition = it, overlayAnchor = null))
             }
             Text("Отступ снизу · ${prefs.overlayOffset} dp")
-            Slider(prefs.overlayOffset.toFloat(), { update(prefs.copy(overlayOffset = it.roundToInt())) }, valueRange = 0f..96f)
+            Slider(prefs.overlayOffset.toFloat(), { update(prefs.copy(overlayOffset = it.roundToInt(), overlayAnchor = null)) }, valueRange = 0f..96f)
         }
     }
     if (accessibilityConsent) AlertDialog(
         onDismissRequest = { accessibilityConsent = false },
         title = { Text("Служба Axis") },
-        text = { Text("Служба показывает панель поверх приложений и может читать доступные элементы экрана для ваших команд управления. Данные экрана передаются модели после выбора команды экрану.") },
+        text = { Text("Служба показывает панель поверх приложений и может читать доступные элементы экрана для ваших команд управления. Данные экрана передаются модели при выборе команды экрану или в режиме автовыполнения.") },
         confirmButton = { TextButton(onClick = {
             accessibilityConsent = false
             accessibilitySettings()

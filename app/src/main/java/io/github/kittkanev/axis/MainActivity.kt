@@ -45,8 +45,11 @@ class MainActivity : ComponentActivity() {
     private var microphoneAllowed by mutableStateOf(false)
     private var overlayAllowed by mutableStateOf(false)
     private var startOverlayAfterPermission = false
+    private var wakeAfterPermission = false
     private var openOverlaySettings by mutableStateOf(false)
     private var assistantActive by mutableStateOf(false)
+    private var wakeAvailable by mutableStateOf(false)
+    private var wakeDownload: android.speech.SpeechRecognizer? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
@@ -54,6 +57,7 @@ class MainActivity : ComponentActivity() {
         receiveMicrophoneRequest()
         receiveOverlayRequest()
         startOverlayAfterPermission = savedInstanceState?.getBoolean("startOverlay") == true
+        wakeAfterPermission = savedInstanceState?.getBoolean("wakeAfterPermission") == true
         val model = app.workspace
         setContent {
             val prefs by app.preferences.state.collectAsStateWithLifecycle()
@@ -67,10 +71,12 @@ class MainActivity : ComponentActivity() {
                 val state by model.state.collectAsStateWithLifecycle()
                 val voices by output.voices.collectAsStateWithLifecycle()
                 val overlayRunning by FloatingAssistantService.isRunning.collectAsStateWithLifecycle()
+                val wakeStatus by FloatingAssistantService.wakeStatus.collectAsStateWithLifecycle()
                 val accessibilityConnected by DeviceControlService.isConnected.collectAsStateWithLifecycle()
                 val notices = remember { SnackbarHostState() }
                 var localNotice by remember { mutableStateOf<String?>(null) }
                 val recognizer = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+                    FloatingAssistantService.setExternalDictation(false)
                     if (result.resultCode == Activity.RESULT_OK) {
                         val words = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.trim()
                         if (words.isNullOrEmpty()) localNotice = "Распознаватель не вернул текст."
@@ -85,6 +91,10 @@ class MainActivity : ComponentActivity() {
                 }
                 val permit = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
                     refreshStatus()
+                    if (wakeAfterPermission) {
+                        wakeAfterPermission = false
+                        if (granted) armWakeWord()
+                    }
                     localNotice = if (granted) "Микрофон доступен в голосовом оверлее." else "Доступ к микрофону не получен."
                 }
                 LaunchedEffect(microphoneRequest) {
@@ -106,14 +116,32 @@ class MainActivity : ComponentActivity() {
                         localNotice = null
                     }
                 }
+                val requestMic: () -> Unit = {
+                    if (microphoneAllowed || !shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO) &&
+                        getPreferences(MODE_PRIVATE).getBoolean("askedMic", false)
+                    ) {
+                        if (!openAppDetails()) localNotice = "Откройте настройки приложения Axis вручную."
+                    } else {
+                        getPreferences(MODE_PRIVATE).edit { putBoolean("askedMic", true) }
+                        permit.launch(Manifest.permission.RECORD_AUDIO)
+                    }
+                }
+                val openAccessibility: () -> Unit = {
+                    if (!openSettings(Settings.ACTION_ACCESSIBILITY_SETTINGS)) {
+                        localNotice = "Откройте специальные возможности Android и включите службу Axis."
+                    }
+                }
                 AxisApp(
                     state = state, model = model, notices = { SnackbarHost(notices) },
                     dictate = {
                         try {
+                            FloatingAssistantService.setExternalDictation(true)
                             recognizer.launch(dictationIntent(prefs.recognitionLanguage))
                         } catch (_: ActivityNotFoundException) {
+                            FloatingAssistantService.setExternalDictation(false)
                             localNotice = "На устройстве нет приложения для распознавания речи. Попробуйте голосовой оверлей."
                         } catch (_: SecurityException) {
+                            FloatingAssistantService.setExternalDictation(false)
                             localNotice = "Система не разрешила запустить распознавание речи."
                         }
                     },
@@ -135,12 +163,22 @@ class MainActivity : ComponentActivity() {
                     assistantSetup = chooseAssistant.takeUnless { assistantActive },
                     overlaySettingsRequested = openOverlaySettings,
                     consumeOverlaySettings = { openOverlaySettings = false },
+                    tutorial = { models, overlay, settingsPage ->
+                        SetupScreen(
+                            state.workspace.active != null, assistantActive, microphoneAllowed, overlayRunning,
+                            prefs.autoControl && accessibilityConnected, wakeStatus == WakeStatus.LISTENING,
+                            models, chooseAssistant, requestMic, overlay, settingsPage,
+                            tryCommand = {
+                                if (!openAboutPhone(this@MainActivity)) localNotice = "Android не открыл раздел «О телефоне»."
+                            },
+                        )
+                    },
                     overlaySettings = {
                         val canStart = overlayAllowed || (prefs.accessibilityOverlay && accessibilityConnected)
                         OverlaySettingsScreen(prefs, app.preferences::update, canStart, overlayRunning,
                             accessibilityConnected, start = {
                             if (canStart) {
-                                if (!FloatingAssistantService.start(this@MainActivity)) {
+                                if (!startFloatingPanel()) {
                                     localNotice = "Android не разрешил запустить плавающую панель."
                                 }
                             } else {
@@ -149,11 +187,7 @@ class MainActivity : ComponentActivity() {
                             }
                         }, stop = {
                             stopService(Intent(this@MainActivity, FloatingAssistantService::class.java))
-                        }, preview = ::openPanel, accessibilitySettings = {
-                            if (!openSettings(Settings.ACTION_ACCESSIBILITY_SETTINGS)) {
-                                localNotice = "Откройте специальные возможности Android и включите службу Axis."
-                            }
-                        }, deviceSettings = {
+                        }, preview = ::openPanel, accessibilitySettings = openAccessibility, deviceSettings = {
                             if (!openAppDetails()) localNotice = "Откройте настройки приложения Axis вручную."
                         })
                     },
@@ -173,16 +207,25 @@ class MainActivity : ComponentActivity() {
                                     }
                                 } else localNotice = "Откройте редактор плиток быстрых настроек и перетащите Axis."
                             },
-                            microphone = {
-                                if (microphoneAllowed || !shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO) &&
-                                    getPreferences(MODE_PRIVATE).getBoolean("askedMic", false)
-                                ) {
-                                    if (!openAppDetails()) localNotice = "Откройте настройки приложения Axis вручную."
-                                } else {
-                                    getPreferences(MODE_PRIVATE).edit { putBoolean("askedMic", true) }
-                                    permit.launch(Manifest.permission.RECORD_AUDIO)
+                            microphone = requestMic,
+                            accessibilityConnected = accessibilityConnected,
+                            accessibilitySettings = openAccessibility,
+                            wakeStatus = wakeStatus,
+                            wakeAvailable = wakeAvailable,
+                            wakeWord = { enable ->
+                                when {
+                                    !enable -> app.preferences.update(app.preferences.state.value.copy(wakeWord = false))
+                                    microphoneAllowed -> armWakeWord()
+                                    else -> {
+                                        wakeAfterPermission = shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO) ||
+                                            !getPreferences(MODE_PRIVATE).getBoolean("askedMic", false)
+                                        requestMic()
+                                    }
                                 }
                             },
+                            installWakeLanguage = if (Build.VERSION.SDK_INT >= 33 && wakeAvailable) {
+                                { downloadWakeLanguage(prefs.wakeLanguage) }
+                            } else null,
                             preview = ::openPanel,
                         )
                     },
@@ -200,6 +243,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean("startOverlay", startOverlayAfterPermission)
+        outState.putBoolean("wakeAfterPermission", wakeAfterPermission)
         super.onSaveInstanceState(outState)
     }
 
@@ -226,16 +270,47 @@ class MainActivity : ComponentActivity() {
         refreshStatus()
         if (startOverlayAfterPermission) {
             startOverlayAfterPermission = false
-            if (overlayAllowed && !FloatingAssistantService.start(this)) {
+            if (overlayAllowed && !startFloatingPanel()) {
                 app.workspace.report("Android не разрешил запустить плавающую панель.")
             }
         }
     }
 
     private fun refreshStatus() {
+        wakeAvailable = hasLocalWakeRecognition(this)
         microphoneAllowed = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         overlayAllowed = Settings.canDrawOverlays(this)
         assistantActive = getSystemService(RoleManager::class.java).isRoleHeld(RoleManager.ROLE_ASSISTANT)
+    }
+
+    private fun startFloatingPanel(): Boolean =
+        FloatingAssistantService.start(this, armWake = app.preferences.state.value.wakeWord && microphoneAllowed && wakeAvailable)
+
+    private fun armWakeWord() {
+        if (!wakeAvailable) {
+            app.workspace.report("Локальное распознавание речи недоступно.")
+            return
+        }
+        app.preferences.update(app.preferences.state.value.copy(wakeWord = true))
+        if (!FloatingAssistantService.canStart(this)) {
+            startOverlayAfterPermission = openOverlayPermission()
+            if (!startOverlayAfterPermission) app.workspace.report("Разрешите показ поверх приложений для Axis.")
+        } else if (!startFloatingPanel()) {
+            app.workspace.report("Android не разрешил запустить прослушивание.")
+        }
+    }
+
+    @androidx.annotation.RequiresApi(33)
+    private fun downloadWakeLanguage(language: String) {
+        try {
+            wakeDownload?.destroy()
+            val recognizer = android.speech.SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
+            wakeDownload = recognizer
+            recognizer.triggerModelDownload(dictationIntent(language))
+            app.workspace.report("Android получил запрос на загрузку языка. После загрузки запустите прослушивание.")
+        } catch (_: RuntimeException) {
+            app.workspace.report("Не удалось запросить язык. Откройте настройки локального распознавания речи Android.")
+        }
     }
 
     private fun openSettings(action: String, uri: android.net.Uri? = null): Boolean = try {
@@ -265,6 +340,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        wakeDownload?.destroy()
         output.close()
         super.onDestroy()
     }

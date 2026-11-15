@@ -18,6 +18,29 @@ class AppCommandsTest {
     }
 
     @Test
+    fun opensTheRequestedSettingsPageWithoutDroppingExtraSteps() {
+        assertTrue(isAboutPhoneCommand("Открой настройки и пункт «О телефоне»"))
+        assertTrue(isAboutPhoneCommand("Аксис, открой настройки, затем зайди в раздел о телефоне."))
+        assertTrue(isAboutPhoneCommand("Open Settings and go to About phone"))
+        assertTrue(isAboutPhoneCommand("Open About device"))
+        assertFalse(isAboutPhoneCommand("Open About phone and change the device name"))
+        assertFalse(isAboutPhoneCommand("How do I open About phone?"))
+        assertNull(directAppQuery("Open Settings, then select About phone"))
+        assertTrue(isDeviceCommand("Нажми на кнопку О телефоне"))
+        assertFalse(isDeviceCommand("Где находится кнопка О телефоне?"))
+    }
+
+    @Test
+    fun wakePhraseMatchesOnlyTheStartOfTheUtterance() {
+        assertEquals("", wakeCommand("Аксис."))
+        assertEquals("open settings", wakeCommand("Axis, open settings"))
+        assertEquals("открой настройки", wakeCommand("Аксис — открой настройки"))
+        assertNull(wakeCommand("Открой настройки, Аксис"))
+        assertNull(wakeCommand("Axisymmetric"))
+        assertNull(wakeCommand("Axis500"))
+    }
+
+    @Test
     fun launchMatchesAliasesAndNeverGuessesBetweenEqualNames() {
         val settings = DeviceApp("Settings", "com.android.settings")
         assertEquals(settings, resolveApp("настройки", listOf(settings)))
