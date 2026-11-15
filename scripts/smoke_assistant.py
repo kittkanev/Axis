@@ -6,6 +6,22 @@ import time
 from smoke_release import APK, PACKAGE, adb, shell, start, tap, wait_for
 
 
+def invoke_assistant():
+    deadline = time.monotonic() + 20
+    while True:
+        result = subprocess.run(
+            ["adb", "shell", "cmd", "voiceinteraction", "show"],
+            text=True, capture_output=True, timeout=15,
+        )
+        if result.returncode == 0:
+            break
+        if time.monotonic() >= deadline:
+            print(result.stdout, result.stderr, shell("dumpsys", "voiceinteraction"), flush=True)
+            print(shell("logcat", "-b", "crash", "-d", "-t", 70), flush=True)
+            result.check_returncode()
+        time.sleep(1)
+
+
 def main():
     shell("wm", "dismiss-keyguard")
     shell("wm", "size", "720x1280")
@@ -53,19 +69,7 @@ def main():
     # Root is available on the AOSP CI image. The application runs as its normal UID.
     adb("root")
     adb("wait-for-device")
-    deadline = time.monotonic() + 20
-    while True:
-        result = subprocess.run(
-            ["adb", "shell", "cmd", "voiceinteraction", "show"],
-            text=True, capture_output=True, timeout=15,
-        )
-        if result.returncode == 0:
-            break
-        if time.monotonic() >= deadline:
-            print(result.stdout, result.stderr, shell("dumpsys", "voiceinteraction"), flush=True)
-            print(shell("logcat", "-b", "crash", "-d", "-t", 70), flush=True)
-            result.check_returncode()
-        time.sleep(1)
+    invoke_assistant()
     try:
         wait_for("Голосовой режим")
         tap("Ввести текст")

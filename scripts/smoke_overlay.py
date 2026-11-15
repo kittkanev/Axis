@@ -3,10 +3,11 @@
 import re
 import time
 
+from smoke_assistant import invoke_assistant
 from smoke_release import APK, PACKAGE, adb, shell, start, tap, wait_for
 
 
-def assert_overlay(kind):
+def assert_overlay(kind, min_height=0):
     deadline = time.monotonic() + 25
     panel = ""
     while time.monotonic() < deadline:
@@ -15,9 +16,13 @@ def assert_overlay(kind):
                       if re.search(r"^\d+.*Axis floating assistant", window)), "")
         if not panel and kind is None:
             return
-        if (kind and f"ty={kind}" in panel and "mHasSurface=true" in panel
-                and "mViewVisibility=0x0" in panel):
-            return
+        if kind:
+            # Android 14 prints some window types as numbers. Android 15 uses names.
+            type_id = {"APPLICATION_OVERLAY": 2038, "ACCESSIBILITY_OVERLAY": 2032}[kind]
+            height = re.search(r"Requested w=\d+ h=(\d+)", panel)
+            if (re.search(rf"\bty=(?:{kind}|{type_id})\b", panel)
+                    and "isVisible=true" in panel and height and int(height.group(1)) >= min_height):
+                return
         time.sleep(1)
     raise AssertionError(f"Unexpected Axis overlay: expected {kind}\n{panel[:5000]}")
 
@@ -33,9 +38,8 @@ def main():
     shell("wm", "density", 230)
     assert "Success" in adb("install", "--no-incremental", "-r", APK, timeout=150)
     shell("appops", "set", PACKAGE, "SYSTEM_ALERT_WINDOW", "allow")
-    start()
-    tap("Чат")
-    tap("Оверлей")
+    shell("am", "start", "-W", "-n", f"{PACKAGE}/.MainActivity",
+          "--ez", "io.github.kittkanev.axis.OPEN_OVERLAY", "true")
     tap("Показать поверх приложений")
     assert_overlay("APPLICATION_OVERLAY")
 
@@ -58,8 +62,8 @@ def main():
 
     # Send the same framework request used by the system assistant gesture.
     shell("cmd", "role", "add-role-holder", "--user", 0, "android.app.role.ASSISTANT", PACKAGE)
-    shell("cmd", "voiceinteraction", "show")
-    assert_overlay("ACCESSIBILITY_OVERLAY")
+    invoke_assistant()
+    assert_overlay("ACCESSIBILITY_OVERLAY", min_height=140)
 
     start()
     wait_for("Панель работает поверх приложений")

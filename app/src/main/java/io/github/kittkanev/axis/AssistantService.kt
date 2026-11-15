@@ -82,7 +82,8 @@ private class AxisAssistantSession(context: Context) : VoiceInteractionSession(c
     override fun onShow(args: Bundle?, showFlags: Int) {
         super.onShow(args, showFlags)
         if (floating) {
-            hide()
+            // Let Android acknowledge the headless show before closing its session.
+            context.mainExecutor.execute { hide() }
             return
         }
         window?.window?.apply {
