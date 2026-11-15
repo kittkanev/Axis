@@ -7,7 +7,7 @@ from smoke_assistant import invoke_assistant
 from smoke_release import APK, PACKAGE, adb, shell, start, tap, wait_for
 
 
-def assert_overlay(kind, min_height=0):
+def assert_overlay(kind, min_height=0, allow_system_hidden=False):
     deadline = time.monotonic() + 25
     panel = ""
     while time.monotonic() < deadline:
@@ -20,8 +20,10 @@ def assert_overlay(kind, min_height=0):
             # Android 14 prints some window types as numbers. Android 15 uses names.
             type_id = {"APPLICATION_OVERLAY": 2038, "ACCESSIBILITY_OVERLAY": 2032}[kind]
             height = re.search(r"Requested w=\d+ h=(\d+)", panel)
-            if (re.search(rf"\bty=(?:{kind}|{type_id})\b", panel)
-                    and "isVisible=true" in panel and height and int(height.group(1)) >= min_height):
+            visible = "isVisible=true" in panel
+            hidden_by_android = allow_system_hidden and "mForceHideNonSystemOverlayWindow=true" in panel
+            if (re.search(rf"\bty=(?:{kind}|{type_id})\b", panel) and (visible or hidden_by_android)
+                    and height and int(height.group(1)) >= min_height):
                 return
         time.sleep(1)
     raise AssertionError(f"Unexpected Axis overlay: expected {kind}\n{panel[:5000]}")
@@ -45,7 +47,8 @@ def main():
 
     shell("am", "start", "-W", "-a", "android.settings.SETTINGS")
     assert_foreground("com.android.settings")
-    assert_overlay("APPLICATION_OVERLAY")
+    # Android may protect Settings by hiding non-system overlays.
+    assert_overlay("APPLICATION_OVERLAY", allow_system_hidden=True)
     shell("input", "keyevent", "KEYCODE_HOME")
     assert_overlay("APPLICATION_OVERLAY")
 
