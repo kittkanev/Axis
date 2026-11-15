@@ -35,7 +35,7 @@ def assert_overlay(kind, min_height=0, allow_system_hidden=False):
 
 def current_overlay_frame():
     panel = find_overlay(shell("dumpsys", "window", "-a", "windows"))
-    frame = re.search(r"(?i)frame=\[(\d+),(\d+)\]\[(\d+),(\d+)\]", panel)
+    frame = re.search(r"(?i) frame=\[(\d+),(\d+)\]\[(\d+),(\d+)\]", panel)
     assert frame, f"Overlay frame missing from window dump:\n{panel[:5000]}"
     return tuple(map(int, frame.groups()))
 
