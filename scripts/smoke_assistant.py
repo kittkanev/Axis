@@ -34,9 +34,15 @@ def main():
     tap("Чат")
     tap("Настройки")
     tap("Сделать Axis ассистентом")
-    activity = shell("dumpsys", "activity", "activities")
-    assert any(("com.android.settings" in line or "permissioncontroller" in line)
-               and "topResumedActivity" in line for line in activity.splitlines()), "Android did not show assistant setup"
+    deadline = time.monotonic() + 15
+    while True:
+        activity = shell("dumpsys", "activity", "activities")
+        if any(("com.android.settings" in line or "permissioncontroller" in line)
+               and "topResumedActivity" in line for line in activity.splitlines()):
+            break
+        if time.monotonic() >= deadline:
+            raise AssertionError(f"Android did not show assistant setup:\n{activity}")
+        time.sleep(1)
     shell("input", "keyevent", "KEYCODE_BACK")
     shell("cmd", "role", "add-role-holder", "--user", 0, "android.app.role.ASSISTANT", PACKAGE)
     selected = shell("settings", "get", "secure", "voice_interaction_service")

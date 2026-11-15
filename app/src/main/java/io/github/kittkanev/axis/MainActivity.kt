@@ -77,22 +77,9 @@ class MainActivity : ComponentActivity() {
                         else model.setDraft(words.take(MAX_PROMPT_LENGTH))
                     }
                 }
-                val roleRequest = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-                    refreshStatus()
-                }
                 val chooseAssistant: () -> Unit = {
-                    val roles = getSystemService(RoleManager::class.java)
-                    val requested = if (assistantActive || !roles.isRoleAvailable(RoleManager.ROLE_ASSISTANT)) false else {
-                        try {
-                            roleRequest.launch(roles.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT))
-                            true
-                        } catch (_: ActivityNotFoundException) {
-                            false
-                        } catch (_: SecurityException) {
-                            false
-                        }
-                    }
-                    if (!requested && !openSettings(Settings.ACTION_VOICE_INPUT_SETTINGS) &&
+                    // Android exposes the assistant role through Settings, where the user selects Axis.
+                    if (!openSettings(Settings.ACTION_VOICE_INPUT_SETTINGS) &&
                         !openSettings(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)
                     ) localNotice = "Откройте Android → Приложения по умолчанию → Цифровой ассистент."
                 }
