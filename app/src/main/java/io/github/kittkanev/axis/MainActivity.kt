@@ -248,9 +248,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun openPanel() {
-        if (!FloatingAssistantService.start(this, expand = true)) {
-            startActivity(Intent(this, AssistantPanelActivity::class.java))
-        }
+        if (!FloatingAssistantService.openRunning()) startActivity(Intent(this, AssistantPanelActivity::class.java))
     }
 
     override fun onKeyShortcut(keyCode: Int, event: KeyEvent): Boolean {

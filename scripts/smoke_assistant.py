@@ -45,6 +45,7 @@ def main():
         time.sleep(1)
     shell("input", "keyevent", "KEYCODE_BACK")
     shell("cmd", "role", "add-role-holder", "--user", 0, "android.app.role.ASSISTANT", PACKAGE)
+    shell("appops", "set", PACKAGE, "SYSTEM_ALERT_WINDOW", "ignore")
     selected = shell("settings", "get", "secure", "voice_interaction_service")
     assert selected == f"{PACKAGE}/.AxisAssistantService", selected
     shell("am", "start", "-W", "-a", "android.settings.SETTINGS")

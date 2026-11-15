@@ -22,9 +22,14 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.setViewTreeLifecycleOwner
+import androidx.lifecycle.lifecycleScope
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 class AxisAssistantService : VoiceInteractionService() {
     override fun onReady() {
@@ -47,6 +52,7 @@ private class AxisAssistantSession(context: Context) : VoiceInteractionSession(c
     override val savedStateRegistry get() = saved.savedStateRegistry
     private var view: ComposeView? = null
     private var floating = false
+    private var transfer: Job? = null
     private val controller = AssistantController(context, app, ::openAxis, ::hide)
 
     init { setTheme(R.style.Theme_Axis_Assistant) }
@@ -68,7 +74,7 @@ private class AxisAssistantSession(context: Context) : VoiceInteractionSession(c
 
     override fun onPrepareShow(args: Bundle?, showFlags: Int) {
         super.onPrepareShow(args, showFlags)
-        floating = FloatingAssistantService.start(context, expand = true)
+        floating = FloatingAssistantService.openRunning()
         setUiEnabled(!floating)
     }
 
@@ -87,16 +93,24 @@ private class AxisAssistantSession(context: Context) : VoiceInteractionSession(c
         setKeepAwake(false)
         registry.currentState = Lifecycle.State.RESUMED
         controller.hide()
-        controller.show()
+        val starting = FloatingAssistantService.start(context, expand = true)
+        controller.show(autoListen = !starting, playSound = !starting)
+        if (starting) transfer = lifecycleScope.launch {
+            if (awaitFloatingPanel()) hide()
+            else controller.playOpeningSound()
+        }
     }
 
     override fun onHide() {
+        transfer?.cancel()
+        transfer = null
         controller.hide()
         registry.currentState = Lifecycle.State.CREATED
         super.onHide()
     }
 
     override fun onDestroy() {
+        transfer?.cancel()
         controller.hide()
         view?.disposeComposition()
         view = null
@@ -122,6 +136,7 @@ private class AxisAssistantSession(context: Context) : VoiceInteractionSession(c
 
 class AssistantPanelActivity : ComponentActivity() {
     private lateinit var controller: AssistantController
+    private var transfer: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -140,17 +155,23 @@ class AssistantPanelActivity : ComponentActivity() {
         finish()
     }
 
-    override fun onStart() {
-        super.onStart()
-        if (FloatingAssistantService.openRunning()) finish() else controller.show()
-    }
-
     override fun onPostResume() {
         super.onPostResume()
-        if (!isFinishing && FloatingAssistantService.start(this, expand = true)) finish()
+        if (FloatingAssistantService.openRunning()) {
+            finish()
+            return
+        }
+        val starting = FloatingAssistantService.start(this, expand = true)
+        controller.show(autoListen = !starting, playSound = !starting)
+        if (starting) transfer = lifecycleScope.launch {
+            if (awaitFloatingPanel()) finish()
+            else controller.playOpeningSound()
+        }
     }
 
     override fun onStop() {
+        transfer?.cancel()
+        transfer = null
         controller.hide()
         super.onStop()
     }
@@ -173,6 +194,10 @@ class AxisTileService : TileService() {
         }
     }
 }
+
+private suspend fun awaitFloatingPanel(): Boolean = withTimeoutOrNull(2_500) {
+    FloatingAssistantService.isRunning.first { it }
+} == true
 
 internal const val EXTRA_OPEN_OVERLAY = "io.github.kittkanev.axis.OPEN_OVERLAY"
 internal fun overlayIntent(context: Context) = mainIntent(context).putExtra(EXTRA_OPEN_OVERLAY, true)

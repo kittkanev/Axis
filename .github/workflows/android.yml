@@ -55,7 +55,4 @@ jobs:
           arch: x86_64
           target: default
           disable-animations: true
-          script: |
-            python3 scripts/smoke_assistant.py app-debug.apk
-            adb shell pm clear io.github.kittkanev.axis
-            python3 scripts/smoke_overlay.py app-debug.apk
+          script: bash scripts/smoke_android.sh app-debug.apk
