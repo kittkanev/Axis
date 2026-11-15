@@ -50,6 +50,6 @@ Install JDK 17 or 21, Android SDK Platform 35, and Build Tools 35.0.0. Set `ANDR
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-On Windows use `gradlew.bat`. Use `-PaxisPreview=true` for a side-by-side build. The default `assembleRelease` output is unsigned. Use the existing release signing key for in-place APK upgrades.
+On Windows use `gradlew.bat`. Use `./gradlew :app:assembleRelease -PaxisPreview=0.5.0` to build the package ID and app label of the published Axis 0.5 Preview. `-PaxisPreview=true` selects the original Axis Preview package. `assembleRelease` produces an unsigned APK. Install an upgrade over an existing app only if the package ID and signing key match.
 
 Axis is released under [Apache License 2.0](LICENSE).

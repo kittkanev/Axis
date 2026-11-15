@@ -1,5 +1,6 @@
 """Verify the published Axis APK through the normal Android activity."""
 from pathlib import Path
+import os
 import re
 import subprocess
 import sys
@@ -7,8 +8,14 @@ import time
 import xml.etree.ElementTree as ET
 
 
-PACKAGE = "io.github.kittkanev.axis"
+NAMESPACE = "io.github.kittkanev.axis"
+PACKAGE = os.environ.get("AXIS_SMOKE_PACKAGE", NAMESPACE)
 APK = Path(sys.argv[1]).resolve()
+
+
+def component(class_name):
+    class_path = f".{class_name}" if PACKAGE == NAMESPACE else f"{NAMESPACE}.{class_name}"
+    return f"{PACKAGE}/{class_path}"
 
 
 def adb(*args, timeout=30):
@@ -43,7 +50,7 @@ def tap(label):
 
 
 def start():
-    result = shell("am", "start", "-W", "-n", f"{PACKAGE}/.MainActivity")
+    result = shell("am", "start", "-W", "-n", component("MainActivity"))
     assert "Status: ok" in result, result
 
 

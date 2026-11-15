@@ -3,7 +3,7 @@
 import subprocess
 import time
 
-from smoke_release import APK, PACKAGE, adb, shell, start, tap, wait_for
+from smoke_release import APK, PACKAGE, adb, component, shell, start, tap, wait_for
 
 
 def invoke_assistant():
@@ -66,7 +66,7 @@ def main():
     shell("cmd", "role", "add-role-holder", "--user", 0, "android.app.role.ASSISTANT", PACKAGE)
     shell("appops", "set", PACKAGE, "SYSTEM_ALERT_WINDOW", "ignore")
     selected = shell("settings", "get", "secure", "voice_interaction_service")
-    assert selected == f"{PACKAGE}/.AxisAssistantService", selected
+    assert selected == component("AxisAssistantService"), selected
     shell("am", "start", "-W", "-a", "android.settings.SETTINGS")
     # The shell command needs ACCESS_VOICE_INTERACTION_SERVICE on current Android.
     # Root is available on the AOSP CI image. The application runs as its normal UID.

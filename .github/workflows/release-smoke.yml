@@ -4,7 +4,8 @@ on:
   push:
     paths:
       - '.github/workflows/release-smoke.yml'
-      - 'scripts/smoke_release.py'
+      - 'scripts/smoke_*.py'
+      - 'scripts/smoke_android.sh'
   workflow_dispatch:
 
 permissions:
@@ -14,12 +15,24 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 18
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [34, 35]
+    env:
+      AXIS_SMOKE_PACKAGE: io.github.kittkanev.axis.preview050
+      AXIS_APK: Axis-0.5.0-preview.apk
     steps:
       - uses: actions/checkout@v6
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: build-tools;35.0.0
       - name: Download signed APK
         run: |
-          curl --fail --location --retry 3 --output Axis-0.1.0.apk https://github.com/kittkanev/Axis/releases/download/v0.1.0/Axis-0.1.0.apk
-          echo '5b05258d92f4d1752048636597eb302296bc4c39a483479909ca0e2561a7e633  Axis-0.1.0.apk' | sha256sum --check
+          curl --fail --location --retry 3 --output "$AXIS_APK" \
+            "https://github.com/kittkanev/Axis/releases/download/v0.5.0-preview/$AXIS_APK"
+          printf '%s  %s\n' b5a1325d355b2abe7173d8a20c26636488ef410f7f1cdda55032ac572875ec98 "$AXIS_APK" | sha256sum --check
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$AXIS_APK"
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -28,8 +41,8 @@ jobs:
       - name: Install and exercise the release APK
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 35
+          api-level: ${{ matrix.api }}
           arch: x86_64
           target: default
           disable-animations: true
-          script: python3 scripts/smoke_release.py Axis-0.1.0.apk
+          script: bash scripts/smoke_android.sh "$AXIS_APK"

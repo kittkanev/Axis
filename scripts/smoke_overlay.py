@@ -4,7 +4,7 @@ import re
 import time
 
 from smoke_assistant import invoke_assistant
-from smoke_release import APK, PACKAGE, adb, shell, start, tap, wait_for
+from smoke_release import APK, PACKAGE, adb, component, shell, start, tap, wait_for
 
 
 def find_overlay(windows):
@@ -65,7 +65,7 @@ def main():
     shell("wm", "density", 230)
     assert "Success" in adb("install", "--no-incremental", "-r", APK, timeout=150)
     shell("appops", "set", PACKAGE, "SYSTEM_ALERT_WINDOW", "allow")
-    shell("am", "start", "-W", "-n", f"{PACKAGE}/.MainActivity",
+    shell("am", "start", "-W", "-n", component("MainActivity"),
           "--ez", "io.github.kittkanev.axis.OPEN_OVERLAY", "true")
     tap("Показать поверх приложений")
     assert_overlay("APPLICATION_OVERLAY")
@@ -79,7 +79,7 @@ def main():
     assert_overlay("APPLICATION_OVERLAY")
 
     start()
-    shell("settings", "put", "secure", "enabled_accessibility_services", f"{PACKAGE}/.DeviceControlService")
+    shell("settings", "put", "secure", "enabled_accessibility_services", component("DeviceControlService"))
     shell("settings", "put", "secure", "accessibility_enabled", "1")
     tap("Панель через специальные возможности")
     assert_overlay("ACCESSIBILITY_OVERLAY")
