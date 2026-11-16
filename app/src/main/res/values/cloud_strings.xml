@@ -28,6 +28,15 @@
     <string name="cloud_expiration">Активен до %1$s</string>
     <string name="cloud_checkout">Открыть страницу оплаты</string>
     <string name="cloud_checkout_pending">Приём оплаты пока не подключён.</string>
+    <string name="cloud_boosty_steps">Оформи Plus на Boosty, привяжи Telegram в настройках Boosty и вступи в закрытую группу по приглашению Boosty. Затем запроси код у бота Axis.</string>
+    <string name="cloud_boosty_open_bot">Получить код в Telegram</string>
+    <string name="cloud_boosty_code">Одноразовый код из Telegram</string>
+    <string name="cloud_boosty_activate">Подтвердить подписку</string>
+    <string name="cloud_boosty_active">Plus подтверждён через Boosty.</string>
+    <string name="cloud_boosty_invalid">Код неверен или истёк. Запроси новый код у бота.</string>
+    <string name="cloud_boosty_inactive">Для Plus нужна активная подписка и доступ к закрытой группе Boosty.</string>
+    <string name="cloud_boosty_conflict">Этот Telegram или аккаунт Axis уже привязан.</string>
+    <string name="cloud_boosty_unavailable">Проверка Boosty временно недоступна. Попробуй позже.</string>
     <string name="cloud_shared_capacity">Дневной лимит обновляется в 00:00 UTC. Доступность зависит и от общего лимита провайдера.</string>
     <string name="cloud_enable_deepseek">Подключить DeepSeek</string>
     <string name="cloud_enable">Подключить</string>

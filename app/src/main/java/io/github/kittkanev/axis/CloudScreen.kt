@@ -50,11 +50,16 @@ internal fun CloudScreen(model: AxisViewModel) {
     var restoring by remember { mutableStateOf(false) }
     var importFile by remember { mutableStateOf<Uri?>(null) }
     var consent by remember { mutableStateOf(false) }
+    var boostyCode by remember(session.baseUrl, session.email) { mutableStateOf("") }
     val conflict = stringResource(R.string.cloud_conflict)
     val finished = stringResource(R.string.cloud_finished)
     val failed = stringResource(R.string.cloud_failed)
     val empty = stringResource(R.string.cloud_empty)
     val old = stringResource(R.string.cloud_no_update)
+    val boostyInvalid = stringResource(R.string.cloud_boosty_invalid)
+    val boostyInactive = stringResource(R.string.cloud_boosty_inactive)
+    val boostyConflict = stringResource(R.string.cloud_boosty_conflict)
+    val boostyUnavailable = stringResource(R.string.cloud_boosty_unavailable)
 
     fun work(action: suspend () -> Unit) {
         if (busy) return
@@ -202,6 +207,43 @@ internal fun CloudScreen(model: AxisViewModel) {
                             catch (_: android.content.ActivityNotFoundException) { notice = failed }
                         }, enabled = !busy) { Text(stringResource(R.string.cloud_checkout)) }
                     } else Text(stringResource(R.string.cloud_checkout_pending), style = MaterialTheme.typography.bodySmall)
+                    val botUrl = Uri.parse(details.optString("boostyBotUrl"))
+                    if (details.optString("source") == "boosty") {
+                        Text(stringResource(R.string.cloud_boosty_active), style = MaterialTheme.typography.bodyMedium)
+                    } else if (details.optBoolean("boostyLinked")) {
+                        Text(stringResource(R.string.cloud_boosty_inactive), style = MaterialTheme.typography.bodySmall)
+                    } else if (botUrl.scheme == "https" && botUrl.encodedAuthority == "t.me" &&
+                        botUrl.encodedPath?.matches(Regex("/[A-Za-z][A-Za-z0-9_]{4,31}")) == true &&
+                        botUrl.query == null && botUrl.fragment == null
+                    ) {
+                        Text(stringResource(R.string.cloud_boosty_steps), style = MaterialTheme.typography.bodySmall)
+                        OutlinedButton(onClick = {
+                            try { context.startActivity(Intent(Intent.ACTION_VIEW, botUrl)) }
+                            catch (_: android.content.ActivityNotFoundException) { notice = failed }
+                        }, enabled = !busy) { Text(stringResource(R.string.cloud_boosty_open_bot)) }
+                        OutlinedTextField(
+                            value = boostyCode,
+                            onValueChange = { boostyCode = it.trim().take(16) },
+                            label = { Text(stringResource(R.string.cloud_boosty_code)) },
+                            singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !busy,
+                        )
+                        OutlinedButton(onClick = { work {
+                            try {
+                                plan = cloud.post("subscription/boosty/claim", JSONObject().put("code", boostyCode))
+                                boostyCode = ""
+                            } catch (error: AxisException) {
+                                notice = when (error.httpStatus) {
+                                    404, 422 -> boostyInvalid
+                                    403 -> boostyInactive
+                                    409 -> boostyConflict
+                                    503 -> boostyUnavailable
+                                    else -> throw error
+                                }
+                            }
+                        } }, enabled = !busy && boostyCode.matches(Regex("[A-Fa-f0-9]{16}"))) {
+                            Text(stringResource(R.string.cloud_boosty_activate))
+                        }
+                    }
                     Button(onClick = { consent = true }, enabled = !busy && details.optBoolean("enabled")) {
                         Text(stringResource(R.string.cloud_enable_deepseek))
                     }

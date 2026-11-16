@@ -10,6 +10,8 @@ from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.background import BackgroundTask
 
+from axis_boosty import BoostyCode
+
 
 MODEL = "deepseek-v4-1-flash-1017"
 UPSTREAM = "https://coarena.ai/api/v1/chat/completions"
@@ -53,33 +55,51 @@ def initialize(conn):
 
 
 class Plans:
-    def __init__(self, db, limiter, key, checkout, daily_cap):
+    def __init__(self, db, limiter, key, checkout, daily_cap, boosty, boosty_limiter, boosty_checkout=None):
         self.db = db
         self.limiter = limiter
         self.key = key
+        self.boosty = boosty
+        self.boosty_limiter = boosty_limiter
         self.slots = asyncio.Semaphore(2)
         self.free_until = 0.0
         # These hosts issue hosted checkout links for the account owner.
         uri = urlsplit(checkout or "")
         self.checkout = checkout if uri.scheme == "https" and uri.hostname in {"boosty.to", "pay.rollypay.io"} and not uri.username else None
+        uri = urlsplit(boosty_checkout or "")
+        self.boosty_checkout = boosty_checkout if uri.scheme == "https" and uri.netloc == "boosty.to" else None
         self.daily_cap = max(1, min(daily_cap, 1000))
         with db() as conn:
             initialize(conn)
 
-    @staticmethod
-    def state(conn, account, day, now):
+    def state(self, conn, account, day, now):
         entry = conn.execute("SELECT expires FROM entitlements WHERE account_id=?", (account,)).fetchone()
         expires = entry[0] if entry and entry[0] > now else None
         used = conn.execute("SELECT count FROM plan_usage WHERE day=? AND account_id=?", (day, account)).fetchone()
-        return expires, used[0] if used else 0
+        link = self.boosty.link(conn, account) if self.boosty.configured else None
+        active = link is not None and link[1] > now
+        source = "boosty" if active else "manual" if expires else None
+        return source, expires if source == "manual" else None, used[0] if used else 0, link is not None
+
+    def subscription_state(self, account):
+        day = datetime.now(timezone.utc).date().isoformat()
+        with self.db() as conn:
+            source, expiry, used, linked = self.state(conn, account, day, int(time.time()))
+        limit = PLUS_DAILY if source else FREE_DAILY
+        bot_url = f"https://t.me/{self.boosty.username}" if self.boosty.ready else None
+        checkout = (self.boosty_checkout if self.boosty.ready else None) if self.boosty.configured or self.boosty_checkout else self.checkout
+        return {"tier": "plus" if source else "free", "expiresAt": expiry, "model": MODEL, "enabled": bool(self.key),
+                "remaining": max(0, limit-used), "limit": limit, "freeLimit": FREE_DAILY, "plusLimit": PLUS_DAILY,
+                "priceRub": PRICE_RUB, "checkoutUrl": checkout, "periodDays": 30,
+                "source": source, "boostyLinked": linked, "boostyBotUrl": bot_url}
 
     def debit(self, account):
         now = datetime.now(timezone.utc)
         day = now.date().isoformat()
         with self.db() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            expires, used = self.state(conn, account, day, int(now.timestamp()))
-            if used >= (PLUS_DAILY if expires else FREE_DAILY):
+            source, _, used, _ = self.state(conn, account, day, int(now.timestamp()))
+            if used >= (PLUS_DAILY if source else FREE_DAILY):
                 raise HTTPException(429, "daily plan limit reached", headers={"Retry-After": "3600"})
             if conn.execute("SELECT COALESCE(sum(count),0) FROM plan_usage WHERE day=?", (day,)).fetchone()[0] >= self.daily_cap:
                 raise HTTPException(429, "shared model capacity reached", headers={"Retry-After": "3600"})
@@ -93,14 +113,15 @@ class Plans:
 
     def register(self, app, account_for):
         @app.get("/subscription")
-        def subscription(account: str = Depends(account_for)):
-            day = datetime.now(timezone.utc).date().isoformat()
-            with self.db() as conn:
-                expiry, used = self.state(conn, account, day, int(time.time()))
-            limit = PLUS_DAILY if expiry else FREE_DAILY
-            return {"tier": "plus" if expiry else "free", "expiresAt": expiry, "model": MODEL, "enabled": bool(self.key),
-                    "remaining": max(0, limit-used), "limit": limit, "freeLimit": FREE_DAILY, "plusLimit": PLUS_DAILY,
-                    "priceRub": PRICE_RUB, "checkoutUrl": self.checkout, "periodDays": 30}
+        async def subscription(account: str = Depends(account_for)):
+            await self.boosty.refresh(account)
+            return self.subscription_state(account)
+
+        @app.post("/subscription/boosty/claim")
+        async def claim_boosty(input: BoostyCode, account: str = Depends(account_for)):
+            self.boosty_limiter.check(account)
+            await self.boosty.claim(account, input.code)
+            return self.subscription_state(account)
 
         @app.get("/provider/v1/models")
         def models(_account: str = Depends(account_for)):
@@ -113,6 +134,7 @@ class Plans:
             if input.model != MODEL or sum(len(turn.content) for turn in input.messages) > 50000:
                 raise HTTPException(422, "unsupported model or context too large")
             self.limiter.check(account)
+            await self.boosty.refresh(account)
             if self.slots.locked():
                 raise HTTPException(429, "bundled model is busy", headers={"Retry-After": "2"})
             await self.slots.acquire()

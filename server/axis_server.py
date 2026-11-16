@@ -21,6 +21,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from axis_boosty import BoostyTelegram
 from axis_reminders import Reminders
 from axis_plans import Plans
 from axis_voice_proxy import MAX_WAV, VoiceProxy
@@ -129,9 +130,11 @@ def create_app(config=None):
     @asynccontextmanager
     async def lifespan(_app):
         reminders.start()
+        boosty.start()
         try:
             yield
         finally:
+            await boosty.close()
             reminders.close()
 
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
@@ -224,8 +227,11 @@ def create_app(config=None):
     reminders.register(app, account_for)
     WebTools(db, RateLimiter(15), os.environ.get("AXIS_BRAVE_KEY")).register(app, account_for)
     VoiceProxy(RateLimiter(10)).register(app, account_for)
+    boosty = BoostyTelegram(db, RateLimiter(4, window=60))
     Plans(db, RateLimiter(8, window=60), os.environ.get("COARENA_API_KEY"),
-          os.environ.get("AXIS_PAYMENT_URL"), int(os.environ.get("AXIS_PROVIDER_DAILY_CAP", "120"))).register(app, account_for)
+          os.environ.get("AXIS_PAYMENT_URL"), int(os.environ.get("AXIS_PROVIDER_DAILY_CAP", "120")),
+          boosty, RateLimiter(8), os.environ.get("AXIS_BOOSTY_CHECKOUT_URL")
+          if os.environ.get("AXIS_BOOSTY_CHECKOUT_ENABLED") == "1" else None).register(app, account_for)
 
     @app.get("/healthz")
     def health():

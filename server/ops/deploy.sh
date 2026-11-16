@@ -27,6 +27,7 @@ for module in "$source_dir"/axis_*.py; do
     install -m 0644 "$module" "/opt/axis/$(basename "$module")"
 done
 install -m 0755 "$ops/backup.sh" /usr/local/sbin/axis-backup
+install -m 0644 "$ops/configure-boosty.py" /opt/axis/configure-boosty.py
 install -m 0644 "$ops/axis.service" "$ops/axis-backup.service" "$ops/axis-backup.timer" /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable axis.service

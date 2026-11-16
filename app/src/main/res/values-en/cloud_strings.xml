@@ -28,6 +28,15 @@
     <string name="cloud_expiration">Active through %1$s</string>
     <string name="cloud_checkout">Open checkout page</string>
     <string name="cloud_checkout_pending">Checkout is currently unavailable.</string>
+    <string name="cloud_boosty_steps">Subscribe to Plus on Boosty, connect Telegram in your Boosty settings, and accept the invitation from Boosty to the private group. Then request a code from the Axis bot.</string>
+    <string name="cloud_boosty_open_bot">Get code in Telegram</string>
+    <string name="cloud_boosty_code">One-time code from Telegram</string>
+    <string name="cloud_boosty_activate">Verify subscription</string>
+    <string name="cloud_boosty_active">Plus verified through Boosty.</string>
+    <string name="cloud_boosty_invalid">The code is invalid or has expired. Request a new code from the bot.</string>
+    <string name="cloud_boosty_inactive">Plus requires an active subscription and access to the private Boosty group.</string>
+    <string name="cloud_boosty_conflict">This Telegram or Axis account is already linked.</string>
+    <string name="cloud_boosty_unavailable">Boosty verification is temporarily unavailable. Try again later.</string>
     <string name="cloud_shared_capacity">Daily quotas reset at 00:00 UTC. Availability also depends on shared provider capacity.</string>
     <string name="cloud_enable_deepseek">Enable DeepSeek</string>
     <string name="cloud_enable">Enable</string>
