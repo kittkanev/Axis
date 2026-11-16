@@ -53,7 +53,7 @@
     <string name="clear_chat">Clear conversation</string>
     <string name="clear_action">Clear</string>
     <string name="overlay_running">The panel is shown over apps</string>
-    <string name="wake_help">The panel listens for the wake phrase on-device while the screen is unlocked. Close the panel to stop listening.</string>
+    <string name="wake_help">The panel detects the phrase on your device while the screen is unlocked. Close the panel to stop listening.</string>
     <string name="step_preview_hint">Axis previews each step before running it. Typing replaces the focused text. Taps may change data in the app.</string>
     <string name="drag_panel">Drag the sphere or the expanded panel header to move it.</string>
     <string name="drag_panel_short">Drag the sphere or the expanded panel header.</string>
@@ -89,7 +89,12 @@
     <string name="stop_action">Stop</string>
     <string name="document_text">Document text</string>
     <string name="text_label">Text</string>
-    <string name="wake_requirements">Requires Android 12 or newer and on-device speech recognition support.</string>
+    <string name="wake_requirements">Download the model for your wake phrase language (about 40–45 MB).</string>
+    <string name="wake_downloading">Downloading model…</string>
+    <string name="wake_download_failed">Could not download the model. Check your connection and available storage.</string>
+    <string name="wake_listening">Listening. Say “Hey Axis” followed by your command.</string>
+    <string name="wake_paused">Open the floating panel or start listening.</string>
+    <string name="wake_unavailable">Listening is unavailable. Check microphone access.</string>
     <string name="remove_screen_selection">Clear screen selection</string>
     <string name="confirm_delete_profile">Delete profile?</string>
     <string name="model_goal">Goal for the model</string>

@@ -34,7 +34,7 @@ Paths and labels vary by MIUI and HyperOS version. The overlay hides when the ph
 ## Voice, screen actions, and files
 
 - **Voice.** Android handles dictation. Axis can send the finished phrase after a pause. In **Models → Model voice (Голос модели)**, Google AI Studio profiles offer conversational Gemini speech with four delivery styles and a voice preview. Android voice and playback settings are also available.
-- **Wake phrase.** In **Settings → Wake phrase (Активация по фразе)**, enable **Listen for “Аксис” or “Axis”** and select the recognition language. Say the phrase alone to start dictation or say it followed by your command. The wake listener requires Android 12 or later and a supported on-device speech recognizer with the language installed. It runs while the floating panel is active and the screen is unlocked. Close the floating panel to stop listening.
+- **Wake phrase.** In **Settings → Wake phrase (Активация по фразе)**, enable **Listen for “Аксис” or “Axis”**, select the language and download its [Vosk model](https://alphacephei.com/vosk/models) (about 40–45 MB). The floating panel processes audio on the device while the screen is unlocked. Say “Аксис” or “Hey Axis” followed by a command, or say the phrase alone to start Android dictation. Close the floating panel to stop listening.
 - **Automatic screen actions.** Enable the Axis accessibility service and **Automatic actions without confirmation (Автовыполнение без подтверждений)** in Settings. A model with tool calling can open an app and continue with taps, text entry, or scrolling across its screens. Axis sends the current control labels for each step and offers **Stop request (Остановить запрос)** during execution. Try “Open Settings and go to About phone” for a system shortcut that works without an API key.
 - **Screen actions with confirmation.** Enable the Axis accessibility service. In the floating panel choose **Screen command (Команда экрану)**, select the screen and enter a command. Axis sends the request and visible control labels to the selected model. Confirm its proposed tap, text entry, scroll, or Back action. Axis rechecks the target window before acting. The **Device control (Управление)** screen also accepts manual plans, one action per line.
 - **Files.** Open UTF-8 TXT and Markdown files up to 128 KB through Android's file picker. Edit the text and save a separate copy.
@@ -52,6 +52,6 @@ Install JDK 17 or 21, Android SDK Platform 35, and Build Tools 35.0.0. Set `ANDR
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-On Windows use `gradlew.bat`. Use `./gradlew :app:assembleRelease -PaxisPreview=0.6.0` to build this side-by-side Preview edition. `assembleRelease` produces an unsigned APK. In-place upgrades require the matching package ID and signing key.
+On Windows use `gradlew.bat`. Use `./gradlew :app:assembleRelease -PaxisPreview=0.6.2` to build this side-by-side Preview edition. `assembleRelease` produces an unsigned APK. In-place upgrades require the matching package ID and signing key.
 
 Axis is released under [Apache License 2.0](LICENSE).

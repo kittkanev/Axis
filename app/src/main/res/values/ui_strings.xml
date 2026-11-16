@@ -53,7 +53,7 @@
     <string name="clear_chat">Очистить чат</string>
     <string name="clear_action">Очистить</string>
     <string name="overlay_running">Панель работает поверх приложений</string>
-    <string name="wake_help">Панель слушает ключевую фразу локально на разблокированном экране. Закройте панель, чтобы остановить прослушивание.</string>
+    <string name="wake_help">Панель распознаёт фразу на устройстве, пока экран разблокирован. Закройте панель, чтобы остановить прослушивание.</string>
     <string name="step_preview_hint">Панель Axis покажет каждый шаг перед выполнением. Ввод заменяет текст в активном поле. Нажатия могут менять данные в приложении.</string>
     <string name="drag_panel">Перетащите свёрнутую сферу или верх раскрытой панели в удобное место.</string>
     <string name="drag_panel_short">Перетащите сферу или потяните за верх раскрытой панели.</string>
@@ -89,7 +89,12 @@
     <string name="stop_action">Стоп</string>
     <string name="document_text">Текст документа</string>
     <string name="text_label">Текст</string>
-    <string name="wake_requirements">Требуется Android 12 или новее и поддержка локального распознавания речи на устройстве.</string>
+    <string name="wake_requirements">Для активации по фразе загрузите локальную модель выбранного языка (около 40–45 МБ).</string>
+    <string name="wake_downloading">Загрузка модели…</string>
+    <string name="wake_download_failed">Не удалось загрузить модель. Проверьте подключение и свободное место.</string>
+    <string name="wake_listening">Слушаю фразу. Скажите «Аксис» и команду.</string>
+    <string name="wake_paused">Откройте плавающую панель или запустите прослушивание.</string>
+    <string name="wake_unavailable">Прослушивание недоступно. Проверьте доступ к микрофону.</string>
     <string name="remove_screen_selection">Убрать экран</string>
     <string name="confirm_delete_profile">Удалить профиль?</string>
     <string name="model_goal">Цель для модели</string>

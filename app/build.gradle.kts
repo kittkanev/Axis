@@ -6,7 +6,7 @@ plugins {
 
 val preview = providers.gradleProperty("axisPreview").orNull
 val previewLabel = when (preview) {
-    "0.6.0", "0.6.1" -> "Axis 0.6 Preview"
+    "0.6.0", "0.6.1", "0.6.2" -> "Axis 0.6 Preview"
     "0.5.0" -> "Axis 0.5 Preview"
     "true" -> "Axis Preview"
     else -> null
@@ -18,7 +18,7 @@ android {
 
     defaultConfig {
         applicationId = when (preview) {
-            "0.6.0", "0.6.1" -> "io.github.kittkanev.axis.preview060"
+            "0.6.0", "0.6.1", "0.6.2" -> "io.github.kittkanev.axis.preview060"
             "0.5.0" -> "io.github.kittkanev.axis.preview050"
             "true" -> "io.github.kittkanev.axis.preview"
             else -> "io.github.kittkanev.axis"
@@ -27,8 +27,8 @@ android {
         manifestPlaceholders["axisAccessibilityLabel"] = previewLabel ?: "@string/device_control_label"
         minSdk = 29
         targetSdk = 35
-        versionCode = 9
-        versionName = "0.6.1"
+        versionCode = 10
+        versionName = "0.6.2"
     }
 
     buildFeatures { compose = true }
@@ -58,6 +58,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.alphacephei:vosk-android:0.3.75")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20250107")

@@ -30,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -37,6 +38,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.core.content.edit
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val app get() = application as AxisApplication
@@ -48,8 +52,8 @@ class MainActivity : ComponentActivity() {
     private var wakeAfterPermission = false
     private var openOverlaySettings by mutableStateOf(false)
     private var assistantActive by mutableStateOf(false)
-    private var wakeAvailable by mutableStateOf(false)
-    private var wakeDownload: android.speech.SpeechRecognizer? = null
+    private var wakeDownloading by mutableStateOf(false)
+    private var wakeModelRevision by mutableIntStateOf(0)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
@@ -61,6 +65,9 @@ class MainActivity : ComponentActivity() {
         val model = app.workspace
         setContent {
             val prefs by app.preferences.state.collectAsStateWithLifecycle()
+            val wakeModelInstalled = remember(prefs.wakeLanguage, wakeModelRevision) {
+                WakeModels.installed(this, prefs.wakeLanguage) != null
+            }
             val dark = isDark(prefs)
             SideEffect {
                 val bars = if (dark) SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
@@ -211,7 +218,8 @@ class MainActivity : ComponentActivity() {
                             accessibilityConnected = accessibilityConnected,
                             accessibilitySettings = openAccessibility,
                             wakeStatus = wakeStatus,
-                            wakeAvailable = wakeAvailable,
+                            wakeModelInstalled = wakeModelInstalled,
+                            wakeDownloading = wakeDownloading,
                             wakeWord = { enable ->
                                 when {
                                     !enable -> app.preferences.update(app.preferences.state.value.copy(wakeWord = false))
@@ -223,9 +231,7 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                             },
-                            installWakeLanguage = if (Build.VERSION.SDK_INT >= 33 && wakeAvailable) {
-                                { downloadWakeLanguage(prefs.wakeLanguage) }
-                            } else null,
+                            installWakeLanguage = { downloadWakeLanguage(prefs.wakeLanguage) },
                             preview = ::openPanel,
                         )
                     },
@@ -277,21 +283,21 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun refreshStatus() {
-        wakeAvailable = hasLocalWakeRecognition(this)
         microphoneAllowed = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         overlayAllowed = Settings.canDrawOverlays(this)
         assistantActive = getSystemService(RoleManager::class.java).isRoleHeld(RoleManager.ROLE_ASSISTANT)
     }
 
-    private fun startFloatingPanel(): Boolean =
-        FloatingAssistantService.start(this, armWake = app.preferences.state.value.wakeWord && microphoneAllowed && wakeAvailable)
+    private fun startFloatingPanel(): Boolean {
+        val prefs = app.preferences.state.value
+        val armWake = prefs.wakeWord && microphoneAllowed && WakeModels.installed(this, prefs.wakeLanguage) != null
+        return FloatingAssistantService.start(this, armWake = armWake)
+    }
 
     private fun armWakeWord() {
-        if (!wakeAvailable) {
-            app.workspace.report("Локальное распознавание речи недоступно.")
-            return
-        }
-        app.preferences.update(app.preferences.state.value.copy(wakeWord = true))
+        val prefs = app.preferences.state.value
+        app.preferences.update(prefs.copy(wakeWord = true))
+        if (WakeModels.installed(this, prefs.wakeLanguage) == null) return
         if (!FloatingAssistantService.canStart(this)) {
             startOverlayAfterPermission = openOverlayPermission()
             if (!startOverlayAfterPermission) app.workspace.report("Разрешите показ поверх приложений для Axis.")
@@ -300,16 +306,22 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    @androidx.annotation.RequiresApi(33)
     private fun downloadWakeLanguage(language: String) {
-        try {
-            wakeDownload?.destroy()
-            val recognizer = android.speech.SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
-            wakeDownload = recognizer
-            recognizer.triggerModelDownload(dictationIntent(language))
-            app.workspace.report("Android получил запрос на загрузку языка. После загрузки запустите прослушивание.")
-        } catch (_: RuntimeException) {
-            app.workspace.report("Не удалось запросить язык. Откройте настройки локального распознавания речи Android.")
+        if (wakeDownloading) return
+        wakeDownloading = true
+        lifecycleScope.launch {
+            try {
+                WakeModels.install(this@MainActivity, language)
+                wakeModelRevision++
+                val prefs = app.preferences.state.value
+                if (prefs.wakeWord && prefs.wakeLanguage == language && microphoneAllowed) armWakeWord()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                app.workspace.report(getString(R.string.wake_download_failed))
+            } finally {
+                wakeDownloading = false
+            }
         }
     }
 
@@ -340,7 +352,6 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        wakeDownload?.destroy()
         output.close()
         super.onDestroy()
     }

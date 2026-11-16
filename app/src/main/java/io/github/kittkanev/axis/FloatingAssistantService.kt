@@ -93,7 +93,7 @@ class FloatingAssistantService : Service(), SavedStateRegistryOwner {
             if (askMicrophone) openMicrophone()
             else openActivity(mainIntent(this))
         }, ::stopSelf, keepOpen = true, beforeRecording = { wake.update(null) })
-        wake = WakeWordListener(this, detected = { command ->
+        wake = WakeWordListener(this, scope, detected = { command ->
             if (!screenOff && wakeArmed && app.preferences.state.value.wakeWord) {
                 showRequest++
                 controller.activateFromWake(command)

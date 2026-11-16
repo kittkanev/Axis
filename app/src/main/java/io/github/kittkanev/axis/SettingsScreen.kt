@@ -47,9 +47,10 @@ internal fun ColumnScope.SettingsScreen(
     accessibilityConnected: Boolean,
     accessibilitySettings: () -> Unit,
     wakeStatus: WakeStatus,
-    wakeAvailable: Boolean,
+    wakeModelInstalled: Boolean,
+    wakeDownloading: Boolean,
     wakeWord: (Boolean) -> Unit,
-    installWakeLanguage: (() -> Unit)?,
+    installWakeLanguage: () -> Unit,
 ) {
     var consent by remember { mutableStateOf(false) }
     var controlConsent by remember { mutableStateOf(false) }
@@ -82,30 +83,28 @@ internal fun ColumnScope.SettingsScreen(
             }
         }
         Section("Активация по фразе") {
-            if (wakeAvailable || prefs.wakeWord) {
-                AxisSwitch("Слушать «Аксис» или «Axis»", prefs.wakeWord, wakeWord)
-                if (prefs.wakeWord) {
-                    AxisPicker("Язык фразы", if (prefs.wakeLanguage == "ru-RU") "Русский" else "English",
-                        listOf("ru-RU" to "Русский", "en-US" to "English")) {
-                        update(prefs.copy(wakeLanguage = it))
-                    }
-                    Text(when (wakeStatus) {
-                        WakeStatus.LISTENING -> "Слушаю фразу. Скажите «Аксис» и команду."
-                        WakeStatus.PAUSED -> "Ожидание. Откройте плавающую панель или запустите прослушивание."
-                        WakeStatus.NEEDS_LANGUAGE -> "Загрузите язык для локального распознавания речи в Android."
-                        WakeStatus.UNAVAILABLE -> "Локальное распознавание недоступно. Проверьте микрофон и настройки речи в Android."
-                    })
-                    if (wakeStatus != WakeStatus.LISTENING) {
-                        OutlinedButton(onClick = { wakeWord(true) }) { Text(stringResource(R.string.start_listening)) }
-                    }
-                    if (installWakeLanguage != null && wakeStatus != WakeStatus.LISTENING) {
-                        OutlinedButton(onClick = installWakeLanguage) { Text(stringResource(R.string.download_language)) }
-                    }
+            AxisSwitch("Слушать «Аксис» или «Axis»", prefs.wakeWord, wakeWord)
+            if (prefs.wakeWord) {
+                AxisPicker("Язык фразы", if (prefs.wakeLanguage == "ru-RU") "Русский" else "English",
+                    listOf("ru-RU" to "Русский", "en-US" to "English")) {
+                    update(prefs.copy(wakeLanguage = it))
                 }
-                Text(stringResource(R.string.wake_help))
-            } else {
-                Text(stringResource(R.string.wake_requirements))
+                val status = if (wakeModelInstalled) wakeStatus else WakeStatus.NEEDS_LANGUAGE
+                Text(stringResource(when (status) {
+                    WakeStatus.LISTENING -> R.string.wake_listening
+                    WakeStatus.PAUSED -> R.string.wake_paused
+                    WakeStatus.NEEDS_LANGUAGE -> R.string.wake_requirements
+                    WakeStatus.UNAVAILABLE -> R.string.wake_unavailable
+                }))
+                if (!wakeModelInstalled) {
+                    OutlinedButton(onClick = installWakeLanguage, enabled = !wakeDownloading) {
+                        Text(stringResource(if (wakeDownloading) R.string.wake_downloading else R.string.download_language))
+                    }
+                } else if (status != WakeStatus.LISTENING) {
+                    OutlinedButton(onClick = { wakeWord(true) }) { Text(stringResource(R.string.start_listening)) }
+                }
             }
+            Text(stringResource(R.string.wake_help))
         }
         Section("Голосовой режим") {
             OutlinedButton(onClick = microphone) {

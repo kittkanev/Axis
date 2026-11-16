@@ -34,6 +34,8 @@ class AppCommandsTest {
     fun wakePhraseMatchesOnlyTheStartOfTheUtterance() {
         assertEquals("", wakeCommand("Аксис."))
         assertEquals("open settings", wakeCommand("Axis, open settings"))
+        assertEquals("open settings", wakeCommand("Hey Axis, open settings"))
+        assertNull(wakeCommand("Hey access your account"))
         assertEquals("открой настройки", wakeCommand("Аксис — открой настройки"))
         assertNull(wakeCommand("Открой настройки, Аксис"))
         assertNull(wakeCommand("Axisymmetric"))
