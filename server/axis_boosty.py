@@ -6,6 +6,7 @@ import re
 import secrets
 import time
 from contextlib import suppress
+from ipaddress import IPv4Address
 
 import httpx
 from fastapi import HTTPException
@@ -17,6 +18,19 @@ CHECK_INTERVAL = 60
 VERIFIED_TTL = 5 * 60
 CODE_LIMIT = 2048
 LOGGER = logging.getLogger(__name__)
+TELEGRAM_HOST = "api.telegram.org"
+
+
+def telegram_request(token, method, payload=None, address=""):
+    endpoint = str(IPv4Address(address)) if address else TELEGRAM_HOST
+    # Keep the Telegram hostname for routing and certificate checks when using a fixed address.
+    return {
+        "url": f"https://{endpoint}/bot{token}/{method}",
+        "headers": {"Host": TELEGRAM_HOST},
+        "extensions": {"sni_hostname": TELEGRAM_HOST},
+        "json": payload or {},
+        "timeout": httpx.Timeout(25 if method == "getUpdates" else 8, connect=2),
+    }
 
 
 class BoostyCode(BaseModel):
@@ -37,6 +51,7 @@ class BoostyTelegram:
         self.db = db
         self.issue_limit = issue_limit
         self.token = os.getenv("AXIS_BOOSTY_BOT_TOKEN", "")
+        self.address = os.getenv("AXIS_TELEGRAM_API_IPV4", "")
         self.username = os.getenv("AXIS_BOOSTY_BOT_USERNAME", "").removeprefix("@")
         chat = os.getenv("AXIS_BOOSTY_CHAT_ID", "")
         self.chat = int(chat) if re.fullmatch(r"-[1-9][0-9]{4,16}", chat) else 0
@@ -72,7 +87,10 @@ class BoostyTelegram:
             # Bot API credentials are part of its URL.
             logging.getLogger("httpx").setLevel(logging.WARNING)
             logging.getLogger("httpcore").setLevel(logging.WARNING)
-            self.client = httpx.AsyncClient(timeout=httpx.Timeout(27, connect=5), trust_env=False)
+            self.client = httpx.AsyncClient(
+                transport=httpx.AsyncHTTPTransport(retries=2, trust_env=False),
+                trust_env=False,
+            )
             self.worker = asyncio.create_task(self.poll())
         elif self.token or self.username or self.chat:
             LOGGER.warning("Axis Boosty bridge configuration is incomplete")
@@ -87,8 +105,7 @@ class BoostyTelegram:
 
     async def api(self, method, payload=None):
         try:
-            response = await self.client.post(f"https://api.telegram.org/bot{self.token}/{method}", json=payload or {},
-                                              timeout=httpx.Timeout(25 if method == "getUpdates" else 6, connect=5))
+            response = await self.client.post(**telegram_request(self.token, method, payload, self.address))
             response.raise_for_status()
             body = response.json()
             if body["ok"] is True:

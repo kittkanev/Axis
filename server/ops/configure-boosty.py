@@ -1,14 +1,16 @@
+#!/opt/axis/.venv/bin/python
 """Configure the official Boosty Telegram group bridge on the Axis VPS."""
 
 import getpass
-import json
 import os
 import re
 import tempfile
 from pathlib import Path
-from urllib.error import URLError
 from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
+
+import httpx
+
+from axis_boosty import telegram_request
 
 
 def configure():
@@ -17,6 +19,8 @@ def configure():
     if stat.st_uid != 0 or stat.st_mode & 0o777 != 0o600:
         raise SystemExit("Expected /etc/axis/.env owned by root with mode 600.")
     existing = env.read_text(encoding="utf-8").splitlines()
+    address = next((line.partition("=")[2] for line in existing
+                    if line.startswith("AXIS_TELEGRAM_API_IPV4=")), "")
     staged_url = next((line.partition("=")[2] for line in existing
                        if line.startswith("AXIS_BOOSTY_CHECKOUT_URL=")), "")
     raw_url = input(f"Public Boosty checkout or blog URL [{staged_url or 'required'}]: ").strip() or staged_url
@@ -31,11 +35,12 @@ def configure():
 
     def telegram(method, payload=None):
         try:
-            request = Request(f"https://api.telegram.org/bot{token}/{method}",
-                              json.dumps(payload or {}).encode(), {"Content-Type": "application/json"})
-            with urlopen(request, timeout=8) as response:
-                return json.load(response)["result"]
-        except (URLError, TimeoutError, ValueError, KeyError):
+            options = telegram_request(token, method, payload, address)
+            with httpx.Client(transport=httpx.HTTPTransport(retries=2, trust_env=False), trust_env=False) as client:
+                response = client.post(**options)
+                response.raise_for_status()
+                return response.json()["result"]
+        except (httpx.HTTPError, ValueError, KeyError):
             raise SystemExit(f"Telegram {method} did not return a usable result. Check connectivity and bot setup.") from None
 
     bot = telegram("getMe")
