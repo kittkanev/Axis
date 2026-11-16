@@ -1,5 +1,6 @@
 package io.github.kittkanev.axis
 
+import androidx.compose.ui.res.stringResource
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -94,7 +95,7 @@ internal fun AssistantPanel(app: AxisApplication, actions: AssistantController, 
             ) {
                 Text("Axis", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
                 Text(voiceLabel, color = Color.White.copy(alpha = .80f), style = MaterialTheme.typography.bodyMedium)
-                if (pin != null) TextButton(onClick = pin) { Text("Поверх приложений") }
+                if (pin != null) TextButton(onClick = pin) { Text(stringResource(R.string.display_over_apps)) }
             }
 
             Column(
@@ -108,13 +109,11 @@ internal fun AssistantPanel(app: AxisApplication, actions: AssistantController, 
                         shape = MaterialTheme.shapes.extraLarge,
                     ) {
                         Column(Modifier.fillMaxWidth().padding(16.dp)) {
-                            Text(
-                                input.reply,
-                                color = Color.White,
-                                style = MaterialTheme.typography.bodyLarge,
-                                modifier = Modifier.heightIn(max = 175.dp).verticalScroll(rememberScrollState()),
-                            )
-                            TextButton(onClick = actions::speakReply) { Text(if (speaking) "Остановить голос" else "Озвучить") }
+                            MarkdownMessage(input.reply, color = Color.White)
+                            if (!input.waiting) Row {
+                                CopyReply(input.reply)
+                                TextButton(onClick = actions::speakReply) { Text(if (speaking) "Остановить голос" else "Озвучить") }
+                            }
                         }
                     }
                 }
@@ -125,7 +124,7 @@ internal fun AssistantPanel(app: AxisApplication, actions: AssistantController, 
                             input.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                             if (input.draft.isNotBlank() || input.showEditor) {
                                 OutlinedTextField(
-                                    value = input.draft, onValueChange = actions::edit, label = { Text("Сообщение") },
+                                    value = input.draft, onValueChange = actions::edit, label = { Text(stringResource(R.string.message_field)) },
                                     modifier = Modifier.fillMaxWidth(),
                                     maxLines = 3, enabled = !input.waiting && !input.listening && !input.finishingSpeech,
                                 )
@@ -133,15 +132,15 @@ internal fun AssistantPanel(app: AxisApplication, actions: AssistantController, 
                                     onClick = actions::send,
                                     enabled = input.draft.isNotBlank() && !input.waiting && !input.listening && !input.finishingSpeech,
                                     modifier = Modifier.align(Alignment.End),
-                                ) { Text("Отправить") }
+                                ) { Text(stringResource(R.string.send_action)) }
                             } else {
-                                TextButton(onClick = { actions.showEditor() }) { Text("Ввести текст") }
+                                TextButton(onClick = { actions.showEditor() }) { Text(stringResource(R.string.enter_text)) }
                             }
                         }
                     }
                 } else if (input.reply.isEmpty()) {
                     TextButton(onClick = actions::showEditor, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-                        Text("Ввести текст")
+                        Text(stringResource(R.string.enter_text))
                     }
                 }
 

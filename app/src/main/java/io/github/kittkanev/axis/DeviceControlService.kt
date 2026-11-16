@@ -223,7 +223,7 @@ class DeviceControlService : AccessibilityService() {
                 val kind = call.tool.kind ?: return false
                 performDeviceStep(root, nodes, DeviceStep(kind, call.value))
             }
-            AxisTool.OPEN -> false
+            else -> false
         }
     }
 

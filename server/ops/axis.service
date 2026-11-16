@@ -1,0 +1,26 @@
+[Unit]
+Description=Axis backend
+After=network.target
+
+[Service]
+User=axis
+Group=axis
+WorkingDirectory=/opt/axis
+EnvironmentFile=/etc/axis/.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/axis/.venv/bin/python -m uvicorn axis_server:create_app --factory --host 127.0.0.1 --port 8080 --workers 1 --limit-concurrency 24 --forwarded-allow-ips=127.0.0.1 --no-access-log
+Restart=on-failure
+RestartSec=2
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/axis
+MemoryHigh=112M
+MemoryMax=168M
+MemorySwapMax=64M
+TasksMax=48
+
+[Install]
+WantedBy=multi-user.target

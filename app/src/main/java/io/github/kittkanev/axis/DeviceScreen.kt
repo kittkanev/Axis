@@ -1,5 +1,6 @@
 package io.github.kittkanev.axis
 
+import androidx.compose.ui.res.stringResource
 import android.content.Context
 import android.content.Intent
 import android.provider.Settings
@@ -60,7 +61,7 @@ internal fun ColumnScope.DeviceScreen(model: AxisViewModel, state: AxisState) {
     val connected by DeviceControlService.isConnected.collectAsStateWithLifecycle()
     val apps = remember { installedApps(context) }
     val plan by model.devicePlan.collectAsStateWithLifecycle()
-    val planning = state.operation == Operation.PLANNING
+    val planning = state.planning
     var query by rememberSaveable { mutableStateOf("") }
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
     var goal by rememberSaveable { mutableStateOf("") }
@@ -74,7 +75,7 @@ internal fun ColumnScope.DeviceScreen(model: AxisViewModel, state: AxisState) {
     ) {
         Text("Управление", style = MaterialTheme.typography.headlineSmall)
         OutlinedTextField(query, { query = it.take(100) }, Modifier.fillMaxWidth(),
-            label = { Text("Найти приложение") }, singleLine = true)
+            label = { Text(stringResource(R.string.find_app)) }, singleLine = true)
         apps.asSequence().filter {
             it.label.contains(query.trim(), true) || it.packageName.contains(query.trim(), true)
         }.take(8).forEach { app ->
@@ -90,7 +91,7 @@ internal fun ColumnScope.DeviceScreen(model: AxisViewModel, state: AxisState) {
             Text("Выбрано: ${app.label}")
             OutlinedButton(onClick = {
                 if (!openApp(context, app)) error = "Не удалось открыть ${app.label}."
-            }) { Text("Открыть приложение") }
+            }) { Text(stringResource(R.string.open_app_action)) }
         }
         OutlinedButton(onClick = { disclose = true }) {
             Text(if (connected) "Служба Axis включена" else "Подключить управление")
@@ -98,20 +99,20 @@ internal fun ColumnScope.DeviceScreen(model: AxisViewModel, state: AxisState) {
         if (target != null) {
             if (state.workspace.active != null) {
                 OutlinedTextField(goal, { goal = it.take(2000) }, Modifier.fillMaxWidth(),
-                    label = { Text("Цель для модели") }, enabled = !planning, maxLines = 3)
-                Text("Axis отправит модели название приложения и цель.")
+                    label = { Text(stringResource(R.string.model_goal)) }, enabled = !planning, maxLines = 3)
+                Text(stringResource(R.string.send_model_goal))
                 if (planning) {
-                    OutlinedButton(onClick = model::cancelRequest) { Text("Отменить запрос") }
+                    OutlinedButton(onClick = model::cancelPlanning) { Text(stringResource(R.string.cancel_request)) }
                 } else {
                     OutlinedButton(onClick = {
                         model.proposeDevicePlan(target.label, goal.trim())
                     },
-                        enabled = goal.isNotBlank() && state.operation == null) { Text("Предложить шаги") }
+                        enabled = goal.isNotBlank() && !state.planning && state.workspace.active != null) { Text(stringResource(R.string.suggest_steps)) }
                 }
             }
-            Text("Одна команда на строку: click Название, type Текст, read, down, up, back.")
+            Text(stringResource(R.string.device_steps_format))
             OutlinedTextField(plan, model::setDevicePlan, Modifier.fillMaxWidth(),
-                label = { Text("Шаги в приложении") }, enabled = !planning, maxLines = 8)
+                label = { Text(stringResource(R.string.steps_in_app)) }, enabled = !planning, maxLines = 8)
             Button(enabled = connected && plan.isNotBlank() && !planning, onClick = {
                 try {
                     approve = parseDevicePlan(plan)
@@ -119,24 +120,24 @@ internal fun ColumnScope.DeviceScreen(model: AxisViewModel, state: AxisState) {
                 } catch (e: AxisException) {
                     error = e.message
                 }
-            }) { Text("Проверить и запустить") }
+            }) { Text(stringResource(R.string.check_start)) }
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
     }
     if (disclose) {
         AlertDialog(
             onDismissRequest = { disclose = false },
-            title = { Text("Доступ к экрану") },
-            text = { Text("Служба Axis может читать доступные элементы интерфейса и нажимать на них. Она работает с выбранным приложением по вашим шагам. Текст экрана показывается на устройстве. Службу можно отключить в настройках Android.") },
+            title = { Text(stringResource(R.string.screen_access)) },
+            text = { Text(stringResource(R.string.device_access_help)) },
             confirmButton = {
                 TextButton(onClick = {
                     disclose = false
                     if (!openActivity(context, Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))) {
                         error = "Не удалось открыть настройки специальных возможностей."
                     }
-                }) { Text("Настройки Android") }
+                }) { Text(stringResource(R.string.android_settings)) }
             },
-            dismissButton = { TextButton(onClick = { disclose = false }) { Text("Отмена") } },
+            dismissButton = { TextButton(onClick = { disclose = false }) { Text(stringResource(R.string.cancel_action)) } },
         )
     }
     val reviewed = approve
@@ -148,7 +149,7 @@ internal fun ColumnScope.DeviceScreen(model: AxisViewModel, state: AxisState) {
                 Column(Modifier.verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     reviewed.forEachIndexed { index, step -> Text("${index + 1}. ${step.description}") }
-                    Text("Панель Axis покажет каждый шаг перед выполнением. Ввод заменяет текст в активном поле. Нажатия могут менять данные в приложении.")
+                    Text(stringResource(R.string.step_preview_hint))
                 }
             },
             confirmButton = {
@@ -160,9 +161,9 @@ internal fun ColumnScope.DeviceScreen(model: AxisViewModel, state: AxisState) {
                         service.stop()
                         error = "Не удалось открыть ${target.label}."
                     }
-                }) { Text("Открыть и показать шаги") }
+                }) { Text(stringResource(R.string.open_show_steps)) }
             },
-            dismissButton = { TextButton(onClick = { approve = null }) { Text("Отмена") } },
+            dismissButton = { TextButton(onClick = { approve = null }) { Text(stringResource(R.string.cancel_action)) } },
         )
     }
 }

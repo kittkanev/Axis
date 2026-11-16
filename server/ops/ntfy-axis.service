@@ -1,0 +1,23 @@
+[Unit]
+Description=Private ntfy for Axis
+After=network.target
+
+[Service]
+User=ntfy-axis
+Group=ntfy-axis
+EnvironmentFile=/etc/ntfy-axis/.env
+ExecStart=/usr/local/bin/ntfy-axis serve --config /etc/ntfy-axis/server.yml
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/ntfy-axis
+UMask=0077
+MemoryHigh=72M
+MemoryMax=112M
+TasksMax=48
+
+[Install]
+WantedBy=multi-user.target

@@ -10,7 +10,7 @@ internal fun availableDeviceTools(tools: Set<AxisTool>, prompt: String, screen: 
             AxisTool.OPEN -> permitsAppTool(prompt)
             AxisTool.CLICK -> screen?.targets?.isNotEmpty() == true
             AxisTool.TYPE -> screen?.hasFocusedInput == true
-            else -> screen != null
+            else -> tool.kind != null && screen != null
         }
     }
 

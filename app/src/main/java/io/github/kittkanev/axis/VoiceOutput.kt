@@ -66,15 +66,19 @@ internal class VoiceOutput(context: Context) {
     private var ready = false
 
     fun speakNeural(text: String, voice: String, style: SpeechStyle, key: suspend () -> String, error: (String) -> Unit) {
+        speakAudio({ gemini.synthesize(key(), text, voice, style).wave() }, error)
+    }
+
+    fun speakAudio(load: suspend () -> ByteArray, error: (String) -> Unit) {
         stop()
         mutableSpeaking.value = true
         synthesis = scope.launch {
             try {
-                val audio = gemini.synthesize(key(), text, voice, style)
+                val audio = load()
                 withContext(Dispatchers.IO) {
                     val file = File.createTempFile("axis-speech-", ".wav", context.cacheDir)
                     try {
-                        file.writeBytes(audio.wave())
+                        file.writeBytes(audio)
                         withContext(Dispatchers.Main) { playAudio(file, error) }
                     } finally {
                         file.delete()
@@ -87,7 +91,7 @@ internal class VoiceOutput(context: Context) {
                 error(e.message.orEmpty())
             } catch (_: IOException) {
                 stop()
-                error("Не удалось воспроизвести звук Gemini.")
+                error("Не удалось воспроизвести звук.")
             }
         }
     }
@@ -104,14 +108,14 @@ internal class VoiceOutput(context: Context) {
             audio.setOnErrorListener { current, _, _ ->
                 if (player === current) {
                     stop()
-                    error("Не удалось воспроизвести звук Gemini.")
+                    error("Не удалось воспроизвести звук.")
                 }
                 true
             }
             audio.prepareAsync()
         } catch (_: IllegalStateException) {
             stop()
-            error("Не удалось воспроизвести звук Gemini.")
+            error("Не удалось воспроизвести звук.")
         }
     }
 

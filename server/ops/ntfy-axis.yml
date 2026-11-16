@@ -1,0 +1,9 @@
+listen-http: "127.0.0.1:2586"
+cache-file: "/var/lib/ntfy-axis/cache.db"
+cache-duration: "12h"
+auth-file: "/var/lib/ntfy-axis/auth.db"
+auth-default-access: "deny-all"
+auth-access:
+  - "axis:axis_*:rw"
+web-root: "disable"
+log-level: "warn"

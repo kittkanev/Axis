@@ -18,6 +18,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.util.concurrent.TimeUnit
+import java.net.InetAddress
+import java.net.Proxy
 
 class OpenAiProviderTest {
     private val server = MockWebServer()
@@ -26,20 +28,23 @@ class OpenAiProviderTest {
 
     @Before
     fun startHttpsServer() {
-        val certificate = HeldCertificate.Builder().addSubjectAlternativeName("localhost").build()
+        val certificate = HeldCertificate.Builder().addSubjectAlternativeName("127.0.0.1").build()
         val serverCertificates = HandshakeCertificates.Builder().heldCertificate(certificate).build()
         val clientCertificates = HandshakeCertificates.Builder().addTrustedCertificate(certificate.certificate).build()
         server.useHttps(serverCertificates.sslSocketFactory(), false)
-        server.start()
+        server.start(InetAddress.getByName("127.0.0.1"), 0)
         val client = OkHttpClient.Builder()
+            .proxy(Proxy.NO_PROXY)
             .sslSocketFactory(clientCertificates.sslSocketFactory(), clientCertificates.trustManager)
             .followRedirects(false)
             .followSslRedirects(false)
             .callTimeout(4, TimeUnit.SECONDS)
             .build()
         provider = OpenAiProvider(client)
-        speech = GeminiVoice(client, server.url("/v1beta/"))
+        speech = GeminiVoice(client, url("/v1beta/"))
     }
+
+    private fun url(path: String) = server.url(path).newBuilder().host("127.0.0.1").build()
 
     @After
     fun stopServer() {
@@ -56,7 +61,7 @@ class OpenAiProviderTest {
         assertEquals("Bearer example-key", request.getHeader("Authorization"))
         val payload = JSONObject(request.body.readUtf8())
         assertEquals("test-model", payload.getString("model"))
-        assertFalse(payload.getBoolean("stream"))
+        assertTrue(payload.getBoolean("stream"))
         assertEquals("user", payload.getJSONArray("messages").getJSONObject(0).getString("role"))
         assertEquals("Привет?", payload.getJSONArray("messages").getJSONObject(0).getString("content"))
     }
@@ -64,7 +69,7 @@ class OpenAiProviderTest {
     @Test
     fun reportsAuthorizationRateLimitAndUnexpectedReplyWithoutExposingResponseBody() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(401).setBody("example-key"))
-        server.enqueue(MockResponse().setResponseCode(429))
+        server.enqueue(MockResponse().setResponseCode(429).setHeader("Retry-After", "3600"))
         server.enqueue(MockResponse().setBody("<html>example-key</html>"))
         val authorization = error()
         assertTrue(authorization.contains("ключ"))
@@ -83,13 +88,23 @@ class OpenAiProviderTest {
     }
 
     @Test
+    fun retriesTemporaryServerErrorBeforeRenderingAStream() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(503))
+        server.enqueue(MockResponse().setHeader("Content-Type", "text/event-stream").setBody(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"OK\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
+        ))
+        assertEquals("OK", complete())
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test
     fun listsModelsOnTheConfiguredApiAndFiltersNonChatEntries() = runBlocking {
         server.enqueue(MockResponse().setBody("""
             {"data":[{"id":"z"},{"id":"a"},{"id":"a"},
             {"id":"image","architecture":{"output_modalities":["image"]}},
             {"id":"tts","supported_endpoints":["/v1/audio/speech"]},{"id":123}]}
         """.trimIndent()))
-        assertEquals(listOf("a", "z"), provider.models(server.url("/api/v1/"), "catalog-key"))
+        assertEquals(listOf("a", "z"), provider.models(url("/api/v1/"), "catalog-key"))
         val request = checkNotNull(server.takeRequest(3, TimeUnit.SECONDS))
         assertEquals("GET", request.method)
         assertEquals("/api/v1/models", request.path)
@@ -162,11 +177,11 @@ class OpenAiProviderTest {
     }
 
     private suspend fun requestClick(tools: Set<AxisTool>) = provider.respond(
-        server.url("/api/v1"), "test-model", "example-key", listOf(Message(Role.USER, "Нажми")), tools,
+        url("/api/v1"), "test-model", "example-key", listOf(Message(Role.USER, "Нажми")), tools,
     )
 
     private suspend fun complete() = provider.complete(
-        server.url("/api/v1/"), "test-model", "example-key", listOf(Message(Role.USER, "Привет?")),
+        url("/api/v1/"), "test-model", "example-key", listOf(Message(Role.USER, "Привет?")),
     )
 
     private suspend fun error(): String {

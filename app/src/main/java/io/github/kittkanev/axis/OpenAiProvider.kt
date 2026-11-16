@@ -1,5 +1,6 @@
 package io.github.kittkanev.axis
 
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.Call
 import okhttp3.Callback
@@ -15,6 +16,8 @@ import org.json.JSONObject
 import java.io.IOException
 import java.io.InterruptedIOException
 import java.net.SocketTimeoutException
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLException
 import kotlin.coroutines.resume
@@ -32,6 +35,8 @@ internal fun axisHttpClient(): OkHttpClient = OkHttpClient.Builder()
     .build()
 
 internal class OpenAiProvider(private val client: OkHttpClient = axisHttpClient()) {
+    private val streaming = client.newBuilder().callTimeout(0, TimeUnit.SECONDS).build()
+
     suspend fun complete(
         baseUrl: HttpUrl,
         model: String,
@@ -45,21 +50,32 @@ internal class OpenAiProvider(private val client: OkHttpClient = axisHttpClient(
         key: String,
         messages: List<Message>,
         tools: Set<AxisTool> = emptySet(),
+        onPartial: (String) -> Unit = {},
     ): ModelReply {
         require(baseUrl.isHttps)
         val path = baseUrl.encodedPath.trimEnd('/')
         val url = baseUrl.newBuilder().encodedPath("$path/chat/completions").build()
         val payload = JSONObject()
             .put("model", model)
-            .put("stream", false)
+            .put("stream", true)
             .put("messages", JSONArray().apply {
                 messages.forEach { message ->
                     put(JSONObject().put("role", message.role.apiName).put("content", message.text))
                 }
             })
         if (tools.isNotEmpty()) payload.put("tools", JSONArray(tools.map(AxisTool::declaration)))
-        val request = jsonRequest(url, payload).header("Authorization", "Bearer $key").build()
-        return client.readJson(request) { parseReply(it, tools) }
+        val request = jsonRequest(url, payload).header("Authorization", "Bearer $key")
+            .header("Accept", "text/event-stream, application/json").build()
+        return retryProvider {
+            streaming.readResponse(request) { response ->
+                val body = requireBody(response)
+                val source = body.source()
+                val isEventStream = body.contentType()?.subtype == "event-stream" ||
+                    (source.request(5) && source.peek().readUtf8(5) == "data:")
+                if (isEventStream) readEventReply(source, tools, onPartial)
+                else parseReply(readJsonBody(response, 512 * 1024L), tools)
+            }
+        }
     }
 
     suspend fun models(baseUrl: HttpUrl, key: String): List<String> {
@@ -68,7 +84,7 @@ internal class OpenAiProvider(private val client: OkHttpClient = axisHttpClient(
         val url = baseUrl.newBuilder().encodedPath("$path/models").build()
         val request = Request.Builder().url(url)
             .header("Authorization", "Bearer $key").header("Accept", "application/json").build()
-        return client.readJson(request, maxBytes = 8 * 1024 * 1024L) { json ->
+        return retryProvider { client.readJson(request, maxBytes = 8 * 1024 * 1024L) { json ->
             val data = json.getJSONArray("data")
             (0 until data.length()).mapNotNull { index ->
                 val entry = data.optJSONObject(index) ?: return@mapNotNull null
@@ -81,8 +97,21 @@ internal class OpenAiProvider(private val client: OkHttpClient = axisHttpClient(
                         (endpoints == null || (0 until endpoints.length()).any { endpoints.optString(it) == "/v1/chat/completions" })
                 }
             }.distinct().sorted()
+        } }
+    }
+}
+
+private suspend fun <T> retryProvider(block: suspend () -> T): T {
+    repeat(2) { attempt ->
+        try {
+            return block()
+        } catch (error: AxisException) {
+            val code = error.httpStatus ?: throw error
+            if ((code != 429 && code !in 500..599) || (error.retryAfterMillis ?: 0) > 20_000L) throw error
+            delay(maxOf(450L shl attempt, error.retryAfterMillis ?: 0))
         }
     }
+    return block()
 }
 
 internal fun jsonRequest(url: HttpUrl, payload: JSONObject): Request.Builder = Request.Builder()
@@ -93,6 +122,11 @@ internal suspend fun <T> OkHttpClient.readJson(
     request: Request,
     maxBytes: Long = 512 * 1024L,
     parse: (JSONObject) -> T,
+): T = readResponse(request) { parse(readJsonBody(it, maxBytes)) }
+
+internal suspend fun <T> OkHttpClient.readResponse(
+    request: Request,
+    parse: (Response) -> T,
 ): T = suspendCancellableCoroutine { continuation ->
     val call = newCall(request)
     continuation.invokeOnCancellation { call.cancel() }
@@ -103,7 +137,7 @@ internal suspend fun <T> OkHttpClient.readJson(
 
         override fun onResponse(call: Call, response: Response) {
             try {
-                continuation.resume(response.use { parse(readJsonBody(it, maxBytes)) })
+                continuation.resume(response.use(parse))
             } catch (e: AxisException) {
                 continuation.resumeWithException(e)
             } catch (e: IOException) {
@@ -115,7 +149,7 @@ internal suspend fun <T> OkHttpClient.readJson(
     })
 }
 
-private fun readJsonBody(response: Response, maxBytes: Long): JSONObject {
+internal fun requireBody(response: Response): okhttp3.ResponseBody {
     if (!response.isSuccessful) {
         val error = when (response.code) {
             in 300..399 -> "API перенаправляет запрос. Укажите конечный HTTPS-адрес."
@@ -127,15 +161,22 @@ private fun readJsonBody(response: Response, maxBytes: Long): JSONObject {
             in 500..599 -> "Провайдер временно недоступен (HTTP ${response.code})."
             else -> "Провайдер отклонил запрос (HTTP ${response.code}). Проверьте модель и адрес API."
         }
-        throw AxisException(error, response.code)
+        val retryAfter = response.header("Retry-After")?.let { value ->
+            value.toLongOrNull()?.coerceIn(0, Long.MAX_VALUE / 1000)?.times(1000)
+                ?: runCatching { ZonedDateTime.parse(value, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toEpochMilli() - System.currentTimeMillis() }.getOrNull()
+        }
+        throw AxisException(error, response.code, retryAfter)
     }
-    val body = response.body ?: throw AxisException("Провайдер вернул пустой ответ.")
-    val source = body.source()
+    return response.body ?: throw AxisException("Провайдер вернул пустой ответ.")
+}
+
+private fun readJsonBody(response: Response, maxBytes: Long): JSONObject {
+    val source = requireBody(response).source()
     if (source.request(maxBytes + 1)) throw AxisException("Ответ провайдера слишком большой.")
     return JSONObject(source.readUtf8())
 }
 
-private fun parseReply(json: JSONObject, tools: Set<AxisTool>): ModelReply {
+internal fun parseReply(json: JSONObject, tools: Set<AxisTool>): ModelReply {
     val choice = json.optJSONArray("choices")?.optJSONObject(0)
     val message = choice?.optJSONObject("message")
     val calls = message?.optJSONArray("tool_calls")

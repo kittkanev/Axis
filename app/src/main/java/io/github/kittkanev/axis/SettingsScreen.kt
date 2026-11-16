@@ -29,6 +29,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
@@ -61,9 +62,9 @@ internal fun ColumnScope.SettingsScreen(
             Button(onClick = chooseAssistant) {
                 Text(if (assistantActive) "Настройки ассистента Android" else "Сделать Axis ассистентом")
             }
-            Text("При жестовой навигации проведите из нижнего угла. Если прошивка не передаёт этот жест, используйте назначенное сочетание Android или плитку Axis.")
-            OutlinedButton(onClick = addTile) { Text("Добавить плитку Axis") }
-            OutlinedButton(onClick = preview) { Text("Открыть оверлей") }
+            Text(stringResource(R.string.assistant_gesture_help))
+            OutlinedButton(onClick = addTile) { Text(stringResource(R.string.add_qs_tile)) }
+            OutlinedButton(onClick = preview) { Text(stringResource(R.string.open_overlay_action)) }
         }
         Section("Внешний вид") {
             AxisPicker("Тема", prefs.theme.label, ThemeMode.entries.map { it to it.label }) {
@@ -75,9 +76,9 @@ internal fun ColumnScope.SettingsScreen(
             AxisSwitch("Автовыполнение без подтверждений", prefs.autoControl) {
                 if (it) controlConsent = true else update(prefs.copy(autoControl = false))
             }
-            Text("Axis выполняет шаги вашей команды по очереди. Инструменты настраиваются отдельно для каждой модели.")
+            Text(stringResource(R.string.sequence_help))
             if (!accessibilityConnected) {
-                OutlinedButton(onClick = accessibilitySettings) { Text("Подключить службу Axis") }
+                OutlinedButton(onClick = accessibilitySettings) { Text(stringResource(R.string.connect_axis_service)) }
             }
         }
         Section("Активация по фразе") {
@@ -95,22 +96,22 @@ internal fun ColumnScope.SettingsScreen(
                         WakeStatus.UNAVAILABLE -> "Локальное распознавание недоступно. Проверьте микрофон и настройки речи в Android."
                     })
                     if (wakeStatus != WakeStatus.LISTENING) {
-                        OutlinedButton(onClick = { wakeWord(true) }) { Text("Запустить прослушивание") }
+                        OutlinedButton(onClick = { wakeWord(true) }) { Text(stringResource(R.string.start_listening)) }
                     }
                     if (installWakeLanguage != null && wakeStatus != WakeStatus.LISTENING) {
-                        OutlinedButton(onClick = installWakeLanguage) { Text("Загрузить язык") }
+                        OutlinedButton(onClick = installWakeLanguage) { Text(stringResource(R.string.download_language)) }
                     }
                 }
-                Text("Панель слушает ключевую фразу локально на разблокированном экране. Закройте панель, чтобы остановить прослушивание.")
+                Text(stringResource(R.string.wake_help))
             } else {
-                Text("Требуется Android 12 или новее и поддержка локального распознавания речи на устройстве.")
+                Text(stringResource(R.string.wake_requirements))
             }
         }
         Section("Голосовой режим") {
             OutlinedButton(onClick = microphone) {
                 Text(if (microphoneAllowed) "Настройки микрофона" else "Разрешить микрофон")
             }
-            Text("Служба Android распознаёт речь и может использовать сеть. Голоса для ответа выбираются в разделе «Модели».")
+            Text(stringResource(R.string.system_speech_help))
             AxisPicker("Язык распознавания", voiceLanguages.toMap().getValue(prefs.recognitionLanguage), voiceLanguages) {
                 update(prefs.copy(recognitionLanguage = it))
             }
@@ -123,17 +124,17 @@ internal fun ColumnScope.SettingsScreen(
     }
     if (controlConsent) AlertDialog(
         onDismissRequest = { controlConsent = false },
-        title = { Text("Выполнять команды без подтверждений?") },
-        text = { Text("При команде управления Axis отправляет выбранной модели доступные названия элементов экрана. Модель может нажимать, вводить текст и прокручивать экран по вашей команде. В процессе доступна кнопка «Остановить запрос».") },
-        confirmButton = { TextButton(onClick = { update(prefs.copy(autoControl = true)); controlConsent = false }) { Text("Включить") } },
-        dismissButton = { TextButton(onClick = { controlConsent = false }) { Text("Отмена") } },
+        title = { Text(stringResource(R.string.confirm_auto_control)) },
+        text = { Text(stringResource(R.string.auto_control_help)) },
+        confirmButton = { TextButton(onClick = { update(prefs.copy(autoControl = true)); controlConsent = false }) { Text(stringResource(R.string.enable_access)) } },
+        dismissButton = { TextButton(onClick = { controlConsent = false }) { Text(stringResource(R.string.cancel_action)) } },
     )
     if (consent) AlertDialog(
         onDismissRequest = { consent = false },
-        title = { Text("Начинать запись автоматически?") },
-        text = { Text("Axis включит микрофон после вызова голосового оверлея на разблокированном экране. Если включена отправка после паузы, распознанная фраза отправится автоматически.") },
-        confirmButton = { TextButton(onClick = { update(prefs.copy(autoListen = true)); consent = false }) { Text("Включить") } },
-        dismissButton = { TextButton(onClick = { consent = false }) { Text("Отмена") } },
+        title = { Text(stringResource(R.string.auto_mic_question)) },
+        text = { Text(stringResource(R.string.auto_mic_notice)) },
+        confirmButton = { TextButton(onClick = { update(prefs.copy(autoListen = true)); consent = false }) { Text(stringResource(R.string.enable_access)) } },
+        dismissButton = { TextButton(onClick = { consent = false }) { Text(stringResource(R.string.cancel_action)) } },
     )
 }
 
@@ -155,13 +156,13 @@ internal fun ColumnScope.OverlaySettingsScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Section("Плавающая панель") {
             if (running) {
-                Text("Панель работает поверх приложений")
-                OutlinedButton(onClick = stop) { Text("Закрыть плавающую панель") }
+                Text(stringResource(R.string.overlay_running))
+                OutlinedButton(onClick = stop) { Text(stringResource(R.string.close_floating_panel)) }
             } else {
                 Button(onClick = start) { Text(if (allowed) "Показать поверх приложений" else "Разрешить показ поверх приложений") }
             }
-            OutlinedButton(onClick = preview) { Text("Открыть голосовой оверлей") }
-            Text("На экране блокировки панель скрыта.")
+            OutlinedButton(onClick = preview) { Text(stringResource(R.string.open_voice_overlay)) }
+            Text(stringResource(R.string.overlay_lock_notice))
             AxisSwitch("Звук при открытии", prefs.openingSound) { update(prefs.copy(openingSound = it)) }
         }
         Section("Работа в других приложениях") {
@@ -169,11 +170,11 @@ internal fun ColumnScope.OverlaySettingsScreen(
                 update(prefs.copy(accessibilityOverlay = it))
             }
             if (prefs.accessibilityOverlay && !accessibilityConnected) {
-                OutlinedButton(onClick = { accessibilityConsent = true }) { Text("Подключить службу Axis") }
+                OutlinedButton(onClick = { accessibilityConsent = true }) { Text(stringResource(R.string.connect_axis_service)) }
             }
             if (isXiaomiDevice) {
-                Text("На POCO, Xiaomi и Redmi разрешите всплывающие окна в фоне. Если панель всё ещё исчезает, выберите для Axis «Нет ограничений» в настройках батареи.")
-                OutlinedButton(onClick = deviceSettings) { Text("Открыть настройки Axis в Android") }
+                Text(stringResource(R.string.overlay_miui_hint))
+                OutlinedButton(onClick = deviceSettings) { Text(stringResource(R.string.open_android_app_settings)) }
             }
         }
         Section("Внешний вид") {
@@ -182,11 +183,11 @@ internal fun ColumnScope.OverlaySettingsScreen(
                 update(prefs.copy(accent = it, customColor = null))
             }
             var custom by remember(prefs.accent) { mutableStateOf(prefs.customColor?.let { "%06X".format(it and 0xFFFFFFL) }.orEmpty()) }
-            OutlinedTextField(custom, { custom = it.take(7) }, label = { Text("Свой цвет HEX") }, singleLine = true)
+            OutlinedTextField(custom, { custom = it.take(7) }, label = { Text(stringResource(R.string.custom_hex_color)) }, singleLine = true)
             val rgb = custom.trim().removePrefix("#").takeIf { it.length == 6 }?.toLongOrNull(16)
                 ?.takeIf { it in 0..0xFFFFFF }
             TextButton(enabled = rgb != null, onClick = { update(prefs.copy(customColor = 0xFF000000L or requireNotNull(rgb))) }) {
-                Text("Применить цвет")
+                Text(stringResource(R.string.apply_color))
             }
             AxisOrb(Modifier.size(prefs.orbSize.dp).align(Alignment.CenterHorizontally), prefs.accent, prefs.motion, false, color = prefs.tint)
             Text("Размер раскрытой сферы · ${prefs.orbSize} dp")
@@ -200,7 +201,7 @@ internal fun ColumnScope.OverlaySettingsScreen(
             AxisSwitch("Анимация", prefs.motion) { update(prefs.copy(motion = it)) }
         }
         Section("Расположение") {
-            Text("Перетащите сферу или потяните за верх раскрытой панели.")
+            Text(stringResource(R.string.drag_panel_short))
             AxisPicker("Положение панели", if (prefs.overlayAnchor == null) prefs.overlayPosition.label else "Свободное",
                 OverlayPosition.entries.map { it to it.label }) {
                 update(prefs.copy(overlayPosition = it, overlayAnchor = null))
@@ -211,13 +212,13 @@ internal fun ColumnScope.OverlaySettingsScreen(
     }
     if (accessibilityConsent) AlertDialog(
         onDismissRequest = { accessibilityConsent = false },
-        title = { Text("Служба Axis") },
-        text = { Text("Служба показывает панель поверх приложений и может читать доступные элементы экрана для ваших команд управления. Данные экрана передаются модели при выборе команды экрану или в режиме автовыполнения.") },
+        title = { Text(stringResource(R.string.axis_service)) },
+        text = { Text(stringResource(R.string.overlay_accessibility_use)) },
         confirmButton = { TextButton(onClick = {
             accessibilityConsent = false
             accessibilitySettings()
-        }) { Text("Настройки Android") } },
-        dismissButton = { TextButton(onClick = { accessibilityConsent = false }) { Text("Отмена") } },
+        }) { Text(stringResource(R.string.android_settings)) } },
+        dismissButton = { TextButton(onClick = { accessibilityConsent = false }) { Text(stringResource(R.string.cancel_action)) } },
     )
 }
 
@@ -272,26 +273,28 @@ internal fun VoiceEditor(
         title = { Text("Голос · ${profile.name}") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                if (ProviderPreset.forUrl(profile.baseUrl) == ProviderPreset.GOOGLE) {
-                    val engines = listOf(false to "Android", true to "Gemini TTS")
-                    AxisPicker("Синтез речи", if (setting.neuralVoice == null) "Android" else "Gemini TTS", engines) {
-                        setting = setting.copy(neuralVoice = if (it) "Aoede" else null)
-                    }
+                val google = ProviderPreset.forUrl(profile.baseUrl) == ProviderPreset.GOOGLE
+                val engines = listOf("Android" to "Android", "Piper" to "Piper") +
+                    if (google) listOf("Gemini TTS" to "Gemini TTS") else emptyList()
+                val chosen = if (setting.piper) "Piper" else if (setting.neuralVoice != null && google) "Gemini TTS" else "Android"
+                AxisPicker(stringResource(R.string.voice_engine), chosen, engines) {
+                    setting = setting.copy(piper = it == "Piper", neuralVoice = if (it == "Gemini TTS") "Aoede" else null)
                 }
+                if (setting.piper) Text(stringResource(R.string.cloud_piper_note))
                 val neural = setting.neuralVoice
-                if (neural != null && ProviderPreset.forUrl(profile.baseUrl) == ProviderPreset.GOOGLE) {
+                if (neural != null && google && !setting.piper) {
                     AxisPicker("Голос Gemini", geminiVoices.getValue(neural), geminiVoices.toList()) {
                         setting = setting.copy(neuralVoice = it)
                     }
                     AxisPicker("Манера речи", setting.speechStyle.label, SpeechStyle.entries.map { it to it.label }) {
                         setting = setting.copy(speechStyle = it)
                     }
-                    Text("Gemini получает текст для озвучивания отдельным запросом.")
+                    Text(stringResource(R.string.gemini_tts_privacy))
                 }
                 AxisPicker("Язык", voiceLanguages.toMap().getValue(setting.language), voiceLanguages) {
                     setting = setting.copy(language = it, name = null)
                 }
-                if (neural == null || ProviderPreset.forUrl(profile.baseUrl) != ProviderPreset.GOOGLE) {
+                if (!setting.piper && (neural == null || !google)) {
                     val options = listOf(null to "По умолчанию") + available.map { it.name to label(it) }
                     AxisPicker("Голос Android", selected?.let(::label) ?: "По умолчанию", options) {
                         setting = setting.copy(name = it)
@@ -301,10 +304,10 @@ internal fun VoiceEditor(
                     Text("Высота · ${(setting.pitch * 100).roundToInt()}%")
                     Slider(setting.pitch, { setting = setting.copy(pitch = it) }, valueRange = 0.7f..1.4f)
                 }
-                OutlinedButton(onClick = { preview(setting) }) { Text("Прослушать") }
+                OutlinedButton(onClick = { preview(setting) }) { Text(stringResource(R.string.preview_action)) }
             }
         },
-        confirmButton = { TextButton(onClick = { save(setting) }) { Text("Сохранить") } },
-        dismissButton = { TextButton(onClick = close) { Text("Отмена") } },
+        confirmButton = { TextButton(onClick = { save(setting) }) { Text(stringResource(R.string.save_action)) } },
+        dismissButton = { TextButton(onClick = close) { Text(stringResource(R.string.cancel_action)) } },
     )
 }

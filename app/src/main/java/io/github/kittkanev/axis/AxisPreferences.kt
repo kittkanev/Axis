@@ -101,6 +101,7 @@ internal class AxisPreferenceStore(application: Application) {
 }
 
 class AxisApplication : Application() {
+    internal val cloud by lazy { AxisCloud(this) }
     private val workspaceModels = ViewModelStore()
     internal var requestMicrophone = false
     internal val preferences by lazy { AxisPreferenceStore(this) }
@@ -123,6 +124,7 @@ internal data class ModelVoice(
     val pitch: Float = 1f,
     val neuralVoice: String? = null,
     val speechStyle: SpeechStyle = SpeechStyle.NATURAL,
+    val piper: Boolean = false,
 )
 
 

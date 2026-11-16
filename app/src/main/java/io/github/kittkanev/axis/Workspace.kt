@@ -2,6 +2,7 @@ package io.github.kittkanev.axis
 
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import java.util.UUID
 
 internal const val MAX_PROMPT_LENGTH = 12_000
 internal const val MAX_SAVED_MESSAGES = 100
@@ -20,6 +21,7 @@ internal data class Profile(
     val systemPrompt: String = DEFAULT_SYSTEM_PROMPT,
     val concise: Boolean = true,
     val tools: Set<AxisTool> = defaultAxisTools,
+    val managed: Boolean = false,
 )
 
 internal data class ProfileInput(
@@ -46,35 +48,60 @@ internal enum class Role(val apiName: String) {
 }
 
 internal data class Message(val role: Role, val text: String)
+internal data class Conversation(val id: String, val title: String, val messages: List<Message> = emptyList())
+internal const val MAX_CONVERSATIONS = 30
 
 internal data class Workspace(
     val profiles: List<Profile> = emptyList(),
     val activeId: String? = null,
     val chats: Map<String, List<Message>> = emptyMap(),
+    val conversations: Map<String, List<Conversation>> = emptyMap(),
+    val activeConversations: Map<String, String> = emptyMap(),
 ) {
     val active: Profile? get() = profiles.firstOrNull { it.id == activeId }
-    val messages: List<Message> get() = chats[activeId].orEmpty()
+    fun conversationsFor(profileId: String): List<Conversation> = conversations[profileId]
+        ?: chats[profileId]?.takeIf { it.isNotEmpty() }?.let { listOf(Conversation("legacy", "", it)) }.orEmpty()
+    val threads: List<Conversation> get() = activeId?.let(::conversationsFor).orEmpty()
+    val conversation: Conversation? get() = threads.firstOrNull { it.id == activeConversations[activeId] } ?: threads.firstOrNull()
+    val messages: List<Message> get() = conversation?.messages.orEmpty()
+
+    fun updateConversations(items: List<Conversation>, activeChat: String?): Workspace {
+        val profileId = activeId ?: return this
+        return copy(
+            chats = chats - profileId,
+            conversations = conversations + (profileId to items),
+            activeConversations = if (activeChat == null) activeConversations - profileId
+                else activeConversations + (profileId to activeChat),
+        )
+    }
+
+    fun withMessages(messages: List<Message>): Workspace {
+        val current = conversation
+        val updated = current?.copy(messages = messages) ?: Conversation(UUID.randomUUID().toString(), "", messages)
+        val items = if (current == null) threads + updated else threads.map { if (it.id == updated.id) updated else it }
+        return updateConversations(items, updated.id)
+    }
 
     fun saveProfile(profile: Profile): Workspace {
         val previous = profiles.firstOrNull { it.id == profile.id }
         val nextProfiles = if (previous == null) profiles + profile
         else profiles.map { if (it.id == profile.id) profile else it }
-        val nextChats = if (previous != null && previous.baseUrl != profile.baseUrl) {
-            chats - profile.id
-        } else {
-            chats
-        }
-        return copy(profiles = nextProfiles, activeId = activeId ?: profile.id, chats = nextChats)
+        val updated = copy(profiles = nextProfiles, activeId = activeId ?: profile.id)
+        return if (previous == null || previous.baseUrl == profile.baseUrl) updated else updated.copy(
+            chats = chats - profile.id, conversations = conversations - profile.id,
+            activeConversations = activeConversations - profile.id,
+        )
     }
 
     fun removeProfile(id: String): Workspace {
         val remaining = profiles.filterNot { it.id == id }
         val nextActive = if (activeId == id) remaining.firstOrNull()?.id else activeId
-        return copy(profiles = remaining, activeId = nextActive, chats = chats - id)
+        return copy(profiles = remaining, activeId = nextActive, chats = chats - id,
+            conversations = conversations - id, activeConversations = activeConversations - id)
     }
 }
 
-internal class AxisException(message: String, val httpStatus: Int? = null) : Exception(message)
+internal class AxisException(message: String, val httpStatus: Int? = null, val retryAfterMillis: Long? = null) : Exception(message)
 
 internal fun validateProfile(input: ProfileInput, existing: Profile?): ProfileSettings {
     val name = input.name.trim()

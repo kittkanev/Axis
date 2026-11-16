@@ -1,0 +1,20 @@
+<resources>
+    <string name="nav_chat">Chat</string>
+    <string name="nav_setup">Axis setup</string>
+    <string name="nav_models">Models</string>
+    <string name="nav_device">Device control</string>
+    <string name="nav_files">Files</string>
+    <string name="nav_overlay">Overlay</string>
+    <string name="nav_settings">Settings</string>
+    <string name="nav_cloud">Axis Cloud</string>
+    <string name="copy_reply">Copy</string>
+    <string name="conversations">Conversations</string>
+    <string name="new_conversation">New conversation</string>
+    <string name="search_conversations">Search conversations</string>
+    <string name="rename_conversation">Rename</string>
+    <string name="conversation_name">Conversation name</string>
+    <string name="delete_conversation">Delete conversation?</string>
+    <string name="delete_action">Delete</string>
+    <string name="save_action">Save</string>
+    <string name="cancel_action">Cancel</string>
+</resources>

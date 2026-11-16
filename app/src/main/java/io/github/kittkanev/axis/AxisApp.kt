@@ -54,9 +54,11 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.res.stringResource
 
-private enum class Screen(val label: String) {
-    CHAT("Чат"), SETUP("Настройка Axis"), MODELS("Модели"), DEVICE("Управление"), DOCUMENTS("Файлы"), OVERLAY("Оверлей"), SETTINGS("Настройки")
+private enum class Screen(val label: Int) {
+    CHAT(R.string.nav_chat), SETUP(R.string.nav_setup), MODELS(R.string.nav_models), DEVICE(R.string.nav_device),
+    DOCUMENTS(R.string.nav_files), OVERLAY(R.string.nav_overlay), SETTINGS(R.string.nav_settings), CLOUD(R.string.nav_cloud)
 }
 
 @Composable
@@ -94,7 +96,7 @@ internal fun AxisApp(
     val context = LocalContext.current
     val fileBusy by model.documentBusy.collectAsStateWithLifecycle()
     val active = state.workspace.active
-    val waiting = state.operation == Operation.SENDING || state.operation == Operation.TESTING || state.operation == Operation.PLANNING
+    val waiting = state.operation == Operation.SENDING
     Scaffold(
         modifier = Modifier.imePadding(),
         snackbarHost = notices,
@@ -109,10 +111,11 @@ internal fun AxisApp(
             }
             when {
                 state.loadFailed -> InfoCard("Данные недоступны", "Повторите загрузку локального профиля и истории.") {
-                    Button(onClick = model::load) { Text("Повторить") }
+                    Button(onClick = model::load) { Text(stringResource(R.string.retry_action)) }
                 }
                 page == Screen.CHAT -> Chat(
                     state = state,
+                    model = model,
                     active = active,
                     assistantSetup = assistantSetup,
                     draft = draft,
@@ -155,6 +158,7 @@ internal fun AxisApp(
                 page == Screen.SETTINGS -> settings()
                 page == Screen.OVERLAY -> overlaySettings()
                 page == Screen.DEVICE -> DeviceScreen(model, state)
+                page == Screen.CLOUD -> CloudScreen(model)
                 else -> DocumentScreen(model)
             }
         }
@@ -174,12 +178,12 @@ private fun AxisHeader(page: Screen, waiting: Boolean, openPanel: () -> Unit, na
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
         )
-        TextButton(onClick = openPanel, enabled = !waiting) { Text("Голос") }
+        TextButton(onClick = openPanel, enabled = !waiting) { Text(stringResource(R.string.voice_action)) }
         Box {
-            OutlinedButton(enabled = !waiting, onClick = { expanded = true }) { Text(page.label) }
+            OutlinedButton(onClick = { expanded = true }) { Text(stringResource(page.label)) }
             DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                 Screen.entries.forEach { screen ->
-                    DropdownMenuItem(text = { Text(screen.label) }, onClick = {
+                    DropdownMenuItem(text = { Text(stringResource(screen.label)) }, onClick = {
                         expanded = false
                         navigate(screen)
                     })
@@ -192,6 +196,7 @@ private fun AxisHeader(page: Screen, waiting: Boolean, openPanel: () -> Unit, na
 @Composable
 private fun ColumnScope.Chat(
     state: AxisState,
+    model: AxisViewModel,
     active: Profile?,
     assistantSetup: (() -> Unit)?,
     draft: String,
@@ -206,13 +211,14 @@ private fun ColumnScope.Chat(
 ) {
     var confirmClear by rememberSaveable { mutableStateOf(false) }
     var confirmVoice by rememberSaveable { mutableStateOf(false) }
+    var chooseChat by rememberSaveable { mutableStateOf(false) }
     val ready = state.operation == null
     val messages = state.workspace.messages
-    val visibleMessages = messages + listOfNotNull(state.pendingMessage)
+    val visibleMessages = messages + listOfNotNull(state.pendingMessage, state.partialReply.takeIf(String::isNotEmpty)?.let { Message(Role.ASSISTANT, it) })
     val focus = LocalFocusManager.current
 
     if (assistantSetup != null && messages.isEmpty() && ready) {
-        TextButton(onClick = assistantSetup) { Text("Сделать Axis ассистентом") }
+        TextButton(onClick = assistantSetup) { Text(stringResource(R.string.set_axis_assistant)) }
     }
     if (active == null) {
         Column(
@@ -220,19 +226,24 @@ private fun ColumnScope.Chat(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             InfoCard("Подключите модель", "Добавьте базовый адрес API, ID модели и свой ключ.") {
-                Button(onClick = openModels) { Text("Открыть модели") }
+                Button(onClick = openModels) { Text(stringResource(R.string.open_models)) }
             }
         }
     } else {
-        Text(active.name, style = MaterialTheme.typography.titleLarge)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(state.workspace.conversation?.title?.takeIf(String::isNotBlank) ?: active.name,
+                modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, maxLines = 1)
+            TextButton(onClick = { chooseChat = true }, enabled = ready) { Text(stringResource(R.string.conversations)) }
+        }
+        if (chooseChat) ConversationChooser(state.workspace, model) { chooseChat = false }
         if (visibleMessages.isEmpty()) {
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
                 InfoCard("Новый разговор", "При отправке Axis передаёт запрос и недавние сообщения выбранному провайдеру.") {}
             }
         } else {
-            key(active.id) {
+            key(active.id, state.workspace.conversation?.id) {
                 val list = rememberLazyListState(initialFirstVisibleItemIndex = visibleMessages.lastIndex)
-                LaunchedEffect(messages, state.pendingMessage) {
+                LaunchedEffect(visibleMessages.lastIndex) {
                     list.scrollToItem(visibleMessages.lastIndex)
                 }
                 LazyColumn(
@@ -246,7 +257,7 @@ private fun ColumnScope.Chat(
                             index == messages.size -> "Вы · запрос"
                             else -> "Вы"
                         }
-                        MessageCard(title, message, speak, stopVoice)
+                        MessageCard(title, message, speak, stopVoice, index >= messages.size)
                     }
                 }
             }
@@ -270,55 +281,57 @@ private fun ColumnScope.Chat(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (state.operation == Operation.SENDING) {
-            OutlinedButton(onClick = cancel) { Text("Остановить запрос") }
+            OutlinedButton(onClick = cancel) { Text(stringResource(R.string.stop_request)) }
         } else {
-            OutlinedButton(onClick = { confirmVoice = true }, enabled = ready) { Text("Микрофон") }
+            OutlinedButton(onClick = { confirmVoice = true }, enabled = ready) { Text(stringResource(R.string.microphone_action)) }
             Button(
                 onClick = { focus.clearFocus(); send() },
                 enabled = ready && draft.isNotBlank() && (active != null || directAppQuery(draft) != null || isAboutPhoneCommand(draft)),
-            ) { Text("Отправить") }
+            ) { Text(stringResource(R.string.send_action)) }
         }
     }
     if (messages.isNotEmpty() && ready) {
-        TextButton(onClick = { confirmClear = true }) { Text("Очистить чат") }
+        TextButton(onClick = { confirmClear = true }) { Text(stringResource(R.string.clear_chat)) }
     }
     if (confirmClear) {
         AlertDialog(
             onDismissRequest = { confirmClear = false },
-            title = { Text("Очистить чат?") },
-            text = { Text("Сообщения этого профиля будут удалены с устройства.") },
+            title = { Text(stringResource(R.string.confirm_clear_chat)) },
+            text = { Text(stringResource(R.string.clear_history_notice)) },
             confirmButton = {
-                TextButton(onClick = { stopVoice(); clear(); confirmClear = false }) { Text("Очистить") }
+                TextButton(onClick = { stopVoice(); clear(); confirmClear = false }) { Text(stringResource(R.string.clear_action)) }
             },
-            dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Отмена") } },
+            dismissButton = { TextButton(onClick = { confirmClear = false }) { Text(stringResource(R.string.cancel_action)) } },
         )
     }
     if (confirmVoice) {
         AlertDialog(
             onDismissRequest = { confirmVoice = false },
-            title = { Text("Распознавание речи") },
-            text = { Text("Речь обработает системное приложение, которое может использовать интернет. Распознанный текст можно отредактировать перед отправкой.") },
+            title = { Text(stringResource(R.string.speech_recognition)) },
+            text = { Text(stringResource(R.string.speech_recognition_help)) },
             confirmButton = {
-                TextButton(onClick = { confirmVoice = false; stopVoice(); dictate() }) { Text("Говорить") }
+                TextButton(onClick = { confirmVoice = false; stopVoice(); dictate() }) { Text(stringResource(R.string.speak_action)) }
             },
-            dismissButton = { TextButton(onClick = { confirmVoice = false }) { Text("Отмена") } },
+            dismissButton = { TextButton(onClick = { confirmVoice = false }) { Text(stringResource(R.string.cancel_action)) } },
         )
     }
 }
 
 @Composable
-private fun MessageCard(title: String, message: Message, speak: (String) -> Unit, stop: () -> Unit) {
+private fun MessageCard(title: String, message: Message, speak: (String) -> Unit, stop: () -> Unit, pending: Boolean) {
     val isReply = message.role == Role.ASSISTANT
     val color = if (isReply) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.primaryContainer
     val onColor = if (isReply) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onPrimaryContainer
     Surface(shape = MaterialTheme.shapes.large, color = color, contentColor = onColor) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(title, style = MaterialTheme.typography.labelLarge)
-            SelectionContainer { Text(message.text, style = MaterialTheme.typography.bodyLarge) }
-            if (isReply) {
+            if (isReply) MarkdownMessage(message.text)
+            else SelectionContainer { Text(message.text, style = MaterialTheme.typography.bodyLarge) }
+            if (isReply && !pending) {
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    TextButton(onClick = { speak(message.text) }) { Text("Озвучить") }
-                    TextButton(onClick = stop) { Text("Стоп") }
+                    CopyReply(message.text)
+                    TextButton(onClick = { speak(message.text) }) { Text(stringResource(R.string.read_aloud)) }
+                    TextButton(onClick = stop) { Text(stringResource(R.string.stop_action)) }
                 }
             }
         }
@@ -341,24 +354,24 @@ private fun ColumnScope.Models(
     ) {
         Text("Модели", style = MaterialTheme.typography.headlineSmall)
         Button(enabled = ready && current.size < MAX_PROFILES, onClick = { editorId = "" }) {
-            Text("Добавить профиль")
+            Text(stringResource(R.string.add_profile))
         }
         if (current.isEmpty()) {
-            Text("Поддерживаются серверы с OpenAI-совместимым Chat Completions по HTTPS.")
+            Text(stringResource(R.string.provider_https_hint))
         }
-        if (state.operation == Operation.TESTING) {
+        if (state.testing) {
             LinearProgressIndicator(Modifier.fillMaxWidth())
-            OutlinedButton(onClick = model::cancelRequest) { Text("Остановить тест") }
+            OutlinedButton(onClick = model::cancelTest) { Text(stringResource(R.string.stop_test)) }
         }
         current.forEach { profile ->
             val active = profile.id == state.workspace.activeId
             InfoCard(profile.name, "${profile.model}\n${profile.baseUrl}") {
                 if (active) Text("Активная модель", style = MaterialTheme.typography.labelLarge)
-                else TextButton(onClick = { model.selectProfile(profile.id) }, enabled = ready) { Text("Выбрать") }
-                TextButton(onClick = { model.testProfile(profile) }, enabled = ready) { Text("Проверить соединение") }
-                TextButton(onClick = { prepareVoices(); voiceProfileId = profile.id }, enabled = ready) { Text("Голос модели") }
-                TextButton(onClick = { editorId = profile.id }, enabled = ready) { Text("Изменить") }
-                TextButton(onClick = { removeId = profile.id }, enabled = ready) { Text("Удалить") }
+                else TextButton(onClick = { model.selectProfile(profile.id) }, enabled = ready) { Text(stringResource(R.string.select_action)) }
+                TextButton(onClick = { model.testProfile(profile) }, enabled = ready && !state.testing) { Text(stringResource(R.string.test_connection)) }
+                TextButton(onClick = { prepareVoices(); voiceProfileId = profile.id }, enabled = ready) { Text(stringResource(R.string.model_voice)) }
+                if (!profile.managed) TextButton(onClick = { editorId = profile.id }, enabled = ready) { Text(stringResource(R.string.edit_action)) }
+                TextButton(onClick = { removeId = profile.id }, enabled = ready) { Text(stringResource(R.string.delete_action)) }
             }
         }
     }
@@ -380,14 +393,14 @@ private fun ColumnScope.Models(
     if (deleting != null) {
         AlertDialog(
             onDismissRequest = { removeId = null },
-            title = { Text("Удалить профиль?") },
+            title = { Text(stringResource(R.string.confirm_delete_profile)) },
             text = { Text("Axis удалит профиль «${deleting.name}», его ключ и историю чата.") },
             confirmButton = {
                 TextButton(onClick = { model.removeProfile(deleting.id); removeId = null }, enabled = ready) {
-                    Text("Удалить")
+                    Text(stringResource(R.string.delete_action))
                 }
             },
-            dismissButton = { TextButton(onClick = { removeId = null }) { Text("Отмена") } },
+            dismissButton = { TextButton(onClick = { removeId = null }) { Text(stringResource(R.string.cancel_action)) } },
         )
     }
 }
@@ -436,7 +449,7 @@ private fun ProfileEditor(
         title = { Text(if (profile == null) "Новая модель" else "Изменить модель") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Ключ хранится на устройстве и передаётся указанному API. Тест соединения отправляет короткий запрос и может расходовать лимит модели.")
+                Text(stringResource(R.string.provider_key_notice))
                 AxisPicker("Провайдер", preset.title, ProviderPreset.entries.map { it to it.title }) { next ->
                     if (!enabled || next == preset) return@AxisPicker
                     preset = next
@@ -448,16 +461,16 @@ private fun ProfileEditor(
                 }
                 OutlinedTextField(
                     input.name, { input = input.copy(name = it) }, Modifier.fillMaxWidth(),
-                    label = { Text("Название") }, singleLine = true, enabled = enabled,
+                    label = { Text(stringResource(R.string.name_field)) }, singleLine = true, enabled = enabled,
                 )
                 if (preset == ProviderPreset.CUSTOM) OutlinedTextField(
                     input.baseUrl, { input = input.copy(baseUrl = it) }, Modifier.fillMaxWidth(),
-                    label = { Text("Базовый адрес API") }, singleLine = true, enabled = enabled,
+                    label = { Text(stringResource(R.string.base_api)) }, singleLine = true, enabled = enabled,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 )
                 OutlinedTextField(
                     input.model, { input = input.copy(model = it) }, Modifier.fillMaxWidth(),
-                    label = { Text("ID модели") }, singleLine = true, enabled = enabled,
+                    label = { Text(stringResource(R.string.model_id_label)) }, singleLine = true, enabled = enabled,
                 )
                 OutlinedTextField(
                     input.key, { input = input.copy(key = it) }, Modifier.fillMaxWidth(),
@@ -466,25 +479,25 @@ private fun ProfileEditor(
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     supportingText = if (profile != null) {
-                        { Text("Пустое поле сохраняет текущий ключ для того же адреса.") }
+                        { Text(stringResource(R.string.keep_api_key)) }
                     } else null,
                 )
                 when {
-                    loading -> Text("Загружаю список моделей…")
+                    loading -> Text(stringResource(R.string.loading_models))
                     catalogError != null -> Text(catalogError.orEmpty(), color = MaterialTheme.colorScheme.error)
-                    catalog?.isEmpty() == true -> Text("API вернул пустой каталог. ID можно ввести вручную.")
+                    catalog?.isEmpty() == true -> Text(stringResource(R.string.empty_model_catalog))
                 }
                 Row {
                     if (!catalog.isNullOrEmpty()) {
                         TextButton(enabled = enabled, onClick = { picker = true }) { Text("Выбрать модель (${catalog?.size})") }
                     }
                     if (canList && input.baseUrl.isNotBlank()) {
-                        TextButton(enabled = enabled && !loading, onClick = { refresh++ }) { Text("Обновить список") }
+                        TextButton(enabled = enabled && !loading, onClick = { refresh++ }) { Text(stringResource(R.string.refresh_list)) }
                     }
                 }
                 OutlinedTextField(
                     input.systemPrompt, { input = input.copy(systemPrompt = it.take(4000)) }, Modifier.fillMaxWidth(),
-                    label = { Text("Системный промпт") }, minLines = 2, maxLines = 4, enabled = enabled,
+                    label = { Text(stringResource(R.string.system_prompt_label)) }, minLines = 2, maxLines = 4, enabled = enabled,
                 )
                 AxisSwitch("Короткие ответы", input.concise) { if (enabled) input = input.copy(concise = it) }
                 Text("Инструменты модели", style = MaterialTheme.typography.titleMedium)
@@ -494,19 +507,19 @@ private fun ProfileEditor(
                     }
                 }
                 if (profile != null && input.baseUrl.trim().trimEnd('/') != profile.baseUrl.trimEnd('/')) {
-                    Text("При смене адреса Axis очистит историю этого профиля и попросит новый ключ.")
+                    Text(stringResource(R.string.provider_address_change))
                 }
                 if (notice != null) Text(notice, color = MaterialTheme.colorScheme.error)
             }
         },
-        confirmButton = { TextButton(onClick = { save(input) }, enabled = enabled) { Text("Сохранить") } },
-        dismissButton = { TextButton(onClick = close, enabled = enabled) { Text("Отмена") } },
+        confirmButton = { TextButton(onClick = { save(input) }, enabled = enabled) { Text(stringResource(R.string.save_action)) } },
+        dismissButton = { TextButton(onClick = close, enabled = enabled) { Text(stringResource(R.string.cancel_action)) } },
     )
     if (picker) {
         var search by remember { mutableStateOf("") }
-        AlertDialog(onDismissRequest = { picker = false }, title = { Text("Доступные модели") }, text = {
+        AlertDialog(onDismissRequest = { picker = false }, title = { Text(stringResource(R.string.available_models)) }, text = {
             Column {
-                OutlinedTextField(search, { search = it }, label = { Text("Поиск модели") }, singleLine = true)
+                OutlinedTextField(search, { search = it }, label = { Text(stringResource(R.string.model_search)) }, singleLine = true)
                 val matched = catalog.orEmpty().filter { it.contains(search.trim(), ignoreCase = true) }
                 LazyColumn(Modifier.heightIn(max = 300.dp)) {
                     itemsIndexed(matched) { _, id ->
@@ -514,7 +527,7 @@ private fun ProfileEditor(
                     }
                 }
             }
-        }, confirmButton = { TextButton(onClick = { picker = false }) { Text("Закрыть") } })
+        }, confirmButton = { TextButton(onClick = { picker = false }) { Text(stringResource(R.string.close_action)) } })
     }
 }
 

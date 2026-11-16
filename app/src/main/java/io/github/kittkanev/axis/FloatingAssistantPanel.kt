@@ -1,5 +1,6 @@
 package io.github.kittkanev.axis
 
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -87,8 +88,8 @@ internal fun FloatingAssistantPanel(
                         verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         when {
                             input.listening -> Text("Слушаю", style = MaterialTheme.typography.titleMedium)
-                            input.finishingSpeech -> Text("Распознаю речь")
-                            input.waiting -> TextButton(onClick = actions::startOrStop) { Text("Остановить запрос") }
+                            input.finishingSpeech -> Text(stringResource(R.string.recognizing_speech))
+                            input.waiting -> TextButton(onClick = actions::startOrStop) { Text(stringResource(R.string.stop_request)) }
                         }
                         input.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                         if (input.reply.isNotBlank()) {
@@ -100,8 +101,8 @@ internal fun FloatingAssistantPanel(
                             Text(proposal.screen.describe(proposal.call), style = MaterialTheme.typography.titleMedium)
                             Text(proposal.screen.packageName, style = MaterialTheme.typography.bodySmall)
                             Row {
-                                Button(onClick = actions::executeTool) { Text("Выполнить") }
-                                TextButton(onClick = actions::dismissTool) { Text("Отмена") }
+                                Button(onClick = actions::executeTool) { Text(stringResource(R.string.run_action)) }
+                                TextButton(onClick = actions::dismissTool) { Text(stringResource(R.string.cancel_action)) }
                             }
                         } else if (!recording && !input.waiting) {
                             if (editing || input.draft.isNotBlank() || input.screen != null) {
@@ -115,26 +116,26 @@ internal fun FloatingAssistantPanel(
                                     editing = false
                                     editorFocus(false)
                                     actions.send()
-                                }) { Text("Отправить") }
+                                }) { Text(stringResource(R.string.send_action)) }
                             }
                             if (disclose) {
-                                Text("Axis отправит выбранной модели названия доступных кнопок и команду.")
+                                Text(stringResource(R.string.send_label_context))
                                 Row {
                                     TextButton(onClick = {
                                         disclose = false
                                         editing = actions.selectScreen()
                                         editorFocus(editing)
-                                    }) { Text("Выбрать экран") }
-                                    TextButton(onClick = { disclose = false }) { Text("Отмена") }
+                                    }) { Text(stringResource(R.string.choose_screen)) }
+                                    TextButton(onClick = { disclose = false }) { Text(stringResource(R.string.cancel_action)) }
                                 }
                             } else if (input.screen == null) {
                                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    if (!editing) TextButton(onClick = { editing = true; editorFocus(true) }) { Text("Текст") }
-                                    TextButton(onClick = { disclose = true }) { Text("Команда экрану") }
+                                    if (!editing) TextButton(onClick = { editing = true; editorFocus(true) }) { Text(stringResource(R.string.text_label)) }
+                                    TextButton(onClick = { disclose = true }) { Text(stringResource(R.string.screen_command)) }
                                     TextButton(onClick = actions::openApp) { Text("Axis") }
                                 }
                             } else {
-                                TextButton(onClick = actions::dismissTool) { Text("Убрать экран") }
+                                TextButton(onClick = actions::dismissTool) { Text(stringResource(R.string.remove_screen_selection)) }
                             }
                         } else if (input.draft.isNotBlank() && recording) {
                             Text(input.draft)

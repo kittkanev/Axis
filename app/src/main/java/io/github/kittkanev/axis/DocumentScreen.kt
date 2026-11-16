@@ -1,5 +1,6 @@
 package io.github.kittkanev.axis
 
+import androidx.compose.ui.res.stringResource
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -44,17 +45,17 @@ internal fun ColumnScope.DocumentScreen(model: AxisViewModel) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text("Файлы", style = MaterialTheme.typography.headlineSmall)
-        Text("Откройте TXT или Markdown в UTF-8 до 128 КБ. Изменения можно сохранить отдельным файлом.")
+        Text(stringResource(R.string.document_help))
         OutlinedButton(enabled = !busy, onClick = { confirm = true }) {
-            Text("Выбрать файл")
+            Text(stringResource(R.string.choose_file))
         }
-        OutlinedButton(enabled = !busy, onClick = model::newDocument) { Text("Новый текст") }
+        OutlinedButton(enabled = !busy, onClick = model::newDocument) { Text(stringResource(R.string.new_text)) }
         val file = document
         if (file != null) {
             Text(file.name, style = MaterialTheme.typography.titleMedium)
             OutlinedTextField(
                 file.text, model::editDocument, Modifier.fillMaxWidth(), enabled = !busy,
-                label = { Text("Текст документа") }, minLines = 5, maxLines = 8,
+                label = { Text(stringResource(R.string.document_text)) }, minLines = 5, maxLines = 8,
             )
             Button(enabled = !busy, onClick = {
                 try {
@@ -63,15 +64,15 @@ internal fun ColumnScope.DocumentScreen(model: AxisViewModel) {
                     model.finishDocumentSave(null)
                     model.documentError("На устройстве нет системного выбора файлов.")
                 }
-            }) { Text("Сохранить копию") }
+            }) { Text(stringResource(R.string.save_copy)) }
         }
         result?.let { Text(it) }
     }
     if (confirm) {
         AlertDialog(
             onDismissRequest = { confirm = false },
-            title = { Text("Открыть документ") },
-            text = { Text("Выберите файл Android. Текущий черновик останется открыт, если отменить выбор.") },
+            title = { Text(stringResource(R.string.open_document)) },
+            text = { Text(stringResource(R.string.select_text_file_prompt)) },
             confirmButton = {
                 TextButton(onClick = {
                     confirm = false
@@ -80,9 +81,9 @@ internal fun ColumnScope.DocumentScreen(model: AxisViewModel) {
                     } catch (_: ActivityNotFoundException) {
                         model.documentError("На устройстве нет системного выбора файлов.")
                     }
-                }) { Text("Выбрать") }
+                }) { Text(stringResource(R.string.select_action)) }
             },
-            dismissButton = { TextButton(onClick = { confirm = false }) { Text("Отмена") } },
+            dismissButton = { TextButton(onClick = { confirm = false }) { Text(stringResource(R.string.cancel_action)) } },
         )
     }
 }

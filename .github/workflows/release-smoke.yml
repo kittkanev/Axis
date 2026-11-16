@@ -6,33 +6,51 @@ on:
       - '.github/workflows/release-smoke.yml'
       - 'scripts/smoke_*.py'
       - 'scripts/smoke_android.sh'
+  release:
+    types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Preview release tag
+        type: string
+        default: v0.5.0-preview
 
 permissions:
   contents: read
 
 jobs:
   smoke:
+    if: github.event_name != 'release' || endsWith(github.event.release.tag_name, '-preview')
     runs-on: ubuntu-latest
     timeout-minutes: 18
     strategy:
       fail-fast: false
       matrix:
         api: [34, 35]
-    env:
-      AXIS_SMOKE_PACKAGE: io.github.kittkanev.axis.preview050
-      AXIS_APK: Axis-0.5.0-preview.apk
     steps:
       - uses: actions/checkout@v6
       - uses: android-actions/setup-android@v4
         with:
           packages: build-tools;35.0.0
       - name: Download signed APK
+        env:
+          AXIS_TAG: ${{ github.event.release.tag_name || inputs.tag || 'v0.5.0-preview' }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          curl --fail --location --retry 3 --output "$AXIS_APK" \
-            "https://github.com/kittkanev/Axis/releases/download/v0.5.0-preview/$AXIS_APK"
-          printf '%s  %s\n' b5a1325d355b2abe7173d8a20c26636488ef410f7f1cdda55032ac572875ec98 "$AXIS_APK" | sha256sum --check
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$AXIS_APK"
+          [[ "$AXIS_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-preview$ ]]
+          apk="Axis-${AXIS_TAG#v}.apk"
+          gh release download "$AXIS_TAG" --repo "$GITHUB_REPOSITORY" --pattern "$apk"
+          if [[ "$AXIS_TAG" == v0.5.0-preview ]]; then
+            digest=sha256:b5a1325d355b2abe7173d8a20c26636488ef410f7f1cdda55032ac572875ec98
+          else
+            digest=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$AXIS_TAG" | jq -r --arg name "$apk" '.assets[] | select(.name == $name) | .digest')
+          fi
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          printf '%s  %s\n' "${digest#sha256:}" "$apk" | sha256sum --check
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$apk"
+          package=$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk" | awk -F"'" '/^package:/{ print $2 }')
+          [[ "$package" =~ ^io\.github\.kittkanev\.axis\.preview[0-9]+$ ]]
+          printf 'AXIS_APK=%s\nAXIS_SMOKE_PACKAGE=%s\n' "$apk" "$package" >> "$GITHUB_ENV"
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules

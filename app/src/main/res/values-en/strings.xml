@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Axis</string>
+    <string name="device_control_label">Axis · app control</string>
+    <string name="device_control_description">Axis reads accessible controls in the selected app. Use the Axis panel to run steps and Stop to end the task.</string>
+</resources>

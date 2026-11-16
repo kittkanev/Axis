@@ -1,0 +1,11 @@
+[Unit]
+Description=Back up Axis SQLite and configuration
+ConditionPathExists=/var/lib/axis/axis.db
+
+[Service]
+Type=oneshot
+UMask=0077
+ExecStart=/usr/local/sbin/axis-backup
+Nice=10
+IOSchedulingClass=idle
+MemoryMax=64M

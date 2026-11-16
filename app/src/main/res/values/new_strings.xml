@@ -1,0 +1,20 @@
+<resources>
+    <string name="nav_chat">Чат</string>
+    <string name="nav_setup">Настройка Axis</string>
+    <string name="nav_models">Модели</string>
+    <string name="nav_device">Управление</string>
+    <string name="nav_files">Файлы</string>
+    <string name="nav_overlay">Оверлей</string>
+    <string name="nav_settings">Настройки</string>
+    <string name="nav_cloud">Axis Cloud</string>
+    <string name="copy_reply">Копировать</string>
+    <string name="conversations">Диалоги</string>
+    <string name="new_conversation">Новый диалог</string>
+    <string name="search_conversations">Поиск по диалогам</string>
+    <string name="rename_conversation">Переименовать</string>
+    <string name="conversation_name">Название диалога</string>
+    <string name="delete_conversation">Удалить диалог?</string>
+    <string name="delete_action">Удалить</string>
+    <string name="save_action">Сохранить</string>
+    <string name="cancel_action">Отмена</string>
+</resources>

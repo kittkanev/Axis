@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/axis-logo.svg" width="120" height="120" alt="Axis logo">
+<img src="docs/axis-logo.png" width="120" height="120" alt="Axis logo">
 
 # Axis for Android
 
@@ -38,6 +38,8 @@ Paths and labels vary by MIUI and HyperOS version. The overlay hides when the ph
 - **Automatic screen actions.** Enable the Axis accessibility service and **Automatic actions without confirmation (Автовыполнение без подтверждений)** in Settings. A model with tool calling can open an app and continue with taps, text entry, or scrolling across its screens. Axis sends the current control labels for each step and offers **Stop request (Остановить запрос)** during execution. Try “Open Settings and go to About phone” for a system shortcut that works without an API key.
 - **Screen actions with confirmation.** Enable the Axis accessibility service. In the floating panel choose **Screen command (Команда экрану)**, select the screen and enter a command. Axis sends the request and visible control labels to the selected model. Confirm its proposed tap, text entry, scroll, or Back action. Axis rechecks the target window before acting. The **Device control (Управление)** screen also accepts manual plans, one action per line.
 - **Files.** Open UTF-8 TXT and Markdown files up to 128 KB through Android's file picker. Edit the text and save a separate copy.
+- **Chats.** Replies stream as they arrive and support Markdown and copying. Open **Conversations** to create, rename, delete, or search the active profile's conversations.
+- **Axis Cloud.** Connect your HTTPS Axis backend for encrypted workspace sync, reminders, releases, hosted DeepSeek, and Piper speech. The app can use a private CA for local deployments. [Android integration](ANDROID_INTEGRATION.md) · [Server setup](server/README.md)
 
 API keys are protected by Android Keystore. A normal model request sends the prompt and recent conversation to the selected provider. Gemini speech sends the reply text in a separate request. Axis does not send screenshots or document contents.
 
@@ -50,6 +52,6 @@ Install JDK 17 or 21, Android SDK Platform 35, and Build Tools 35.0.0. Set `ANDR
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-On Windows use `gradlew.bat`. Use `./gradlew :app:assembleRelease -PaxisPreview=0.5.0` to build the package ID and app label of the published Axis 0.5 Preview. `-PaxisPreview=true` selects the original Axis Preview package. `assembleRelease` produces an unsigned APK. Install an upgrade over an existing app only if the package ID and signing key match.
+On Windows use `gradlew.bat`. Use `./gradlew :app:assembleRelease -PaxisPreview=0.6.0` to build this side-by-side Preview edition. `assembleRelease` produces an unsigned APK. In-place upgrades require the matching package ID and signing key.
 
 Axis is released under [Apache License 2.0](LICENSE).

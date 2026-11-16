@@ -30,56 +30,11 @@ internal class WorkspaceStore(context: Context) {
             if (!file.baseFile.exists() && !File(file.baseFile.path + ".bak").exists()) return Workspace()
             throw e
         }
-        return try {
-            val data = JSONObject(encoded)
-            val profiles = data.getJSONArray("profiles").objects().map {
-                Profile(
-                    it.getString("id"), it.getString("name"), it.getString("baseUrl"),
-                    it.getString("model"), it.getString("encryptedKey"), it.optJSONObject("voice").toModelVoice(),
-                    it.optString("systemPrompt", DEFAULT_SYSTEM_PROMPT), it.optBoolean("concise", true),
-                    it.optJSONArray("tools")?.let { saved ->
-                        AxisTool.entries.filter { tool -> (0 until saved.length()).any { saved.optString(it) == tool.wire } }.toSet()
-                    } ?: defaultAxisTools,
-                )
-            }
-            val chats = data.getJSONObject("chats")
-            Workspace(
-                profiles = profiles,
-                activeId = data.optString("activeId").takeIf { id -> profiles.any { it.id == id } }
-                    ?: profiles.firstOrNull()?.id,
-                chats = profiles.associate { profile ->
-                    val messages = chats.optJSONArray(profile.id)?.objects().orEmpty().map { message ->
-                        Message(Role.valueOf(message.getString("role")), message.getString("text"))
-                    }
-                    profile.id to retainChat(messages)
-                },
-            )
-        } catch (_: JSONException) {
-            throw AxisException("Не удалось прочитать локальные данные Axis.")
-        } catch (_: IllegalArgumentException) {
-            throw AxisException("Не удалось прочитать локальные данные Axis.")
-        }
+        return decodeWorkspace(encoded)
     }
 
     fun save(workspace: Workspace) {
-        val profiles = JSONArray()
-        workspace.profiles.forEach { profile ->
-            profiles.put(
-                JSONObject().put("id", profile.id).put("name", profile.name)
-                    .put("baseUrl", profile.baseUrl).put("model", profile.model)
-                    .put("encryptedKey", profile.encryptedKey).put("voice", profile.voice.toJson())
-                    .put("systemPrompt", profile.systemPrompt).put("concise", profile.concise)
-                    .put("tools", JSONArray(profile.tools.map { it.wire })),
-            )
-        }
-        val chats = JSONObject()
-        workspace.chats.forEach { (id, messages) ->
-            val entries = JSONArray()
-            messages.forEach { entries.put(JSONObject().put("role", it.role.name).put("text", it.text)) }
-            chats.put(id, entries)
-        }
-        val bytes = JSONObject().put("activeId", workspace.activeId ?: JSONObject.NULL)
-            .put("profiles", profiles).put("chats", chats).toString().toByteArray(Charsets.UTF_8)
+        val bytes = encodeWorkspace(workspace, portable = false)
         val stream = file.startWrite()
         try {
             stream.write(bytes)
@@ -89,6 +44,89 @@ internal class WorkspaceStore(context: Context) {
             file.failWrite(stream)
             throw e
         }
+    }
+
+    fun portable(workspace: Workspace): ByteArray = encodeWorkspace(workspace, portable = true)
+
+    fun fromPortable(bytes: ByteArray, previous: Workspace): Workspace {
+        val imported = decodeWorkspace(bytes.toString(Charsets.UTF_8))
+        return imported.copy(profiles = imported.profiles.map { profile ->
+            val existing = previous.profiles.firstOrNull { it.id == profile.id && it.baseUrl == profile.baseUrl }
+            profile.copy(encryptedKey = existing?.encryptedKey.orEmpty())
+        })
+    }
+
+    private fun decodeWorkspace(encoded: String): Workspace = try {
+            val data = JSONObject(encoded)
+            val profiles = data.getJSONArray("profiles").objects().map {
+                Profile(
+                    it.getString("id"), it.getString("name"), it.getString("baseUrl"),
+                    it.getString("model"), it.optString("encryptedKey"), it.optJSONObject("voice").toModelVoice(),
+                    it.optString("systemPrompt", DEFAULT_SYSTEM_PROMPT), it.optBoolean("concise", true),
+                    it.optJSONArray("tools")?.let { saved ->
+                        AxisTool.entries.filter { tool -> (0 until saved.length()).any { saved.optString(it) == tool.wire } }.toSet()
+                    } ?: defaultAxisTools,
+                    it.optBoolean("managed"),
+                )
+            }
+            require(profiles.size <= MAX_PROFILES && profiles.map { it.id }.distinct().size == profiles.size)
+            profiles.forEach { validateConnection(it.baseUrl, "validate", null) }
+            val chats = data.optJSONObject("chats")
+            val conversations = data.optJSONObject("conversations")
+            val selections = data.optJSONObject("activeConversations")
+            Workspace(
+                profiles = profiles,
+                activeId = data.optString("activeId").takeIf { id -> profiles.any { it.id == id } }
+                    ?: profiles.firstOrNull()?.id,
+                chats = profiles.associate { it.id to readMessages(chats?.optJSONArray(it.id)) },
+                conversations = profiles.mapNotNull { profile ->
+                    conversations?.optJSONArray(profile.id)?.let { items ->
+                        require(items.length() <= MAX_CONVERSATIONS)
+                        val threads = items.objects().map { item ->
+                            Conversation(item.getString("id"), item.optString("title").take(80), readMessages(item.optJSONArray("messages")))
+                        }
+                        require(threads.all { it.id.isNotBlank() && it.id.length <= 64 } && threads.map { it.id }.distinct().size == threads.size)
+                        profile.id to threads
+                    }
+                }.toMap(),
+                activeConversations = profiles.mapNotNull { profile -> selections?.optString(profile.id)
+                    ?.takeIf(String::isNotBlank)?.let { profile.id to it } }.toMap(),
+            )
+        } catch (_: JSONException) {
+            throw AxisException("Не удалось прочитать локальные данные Axis.")
+        } catch (_: IllegalArgumentException) {
+            throw AxisException("Не удалось прочитать локальные данные Axis.")
+        }
+    private fun readMessages(values: JSONArray?): List<Message> = retainChat(values?.objects().orEmpty().map { message ->
+        Message(Role.valueOf(message.getString("role")), message.getString("text"))
+    })
+
+    private fun writeMessages(messages: List<Message>) = JSONArray().apply {
+        messages.forEach { put(JSONObject().put("role", it.role.name).put("text", it.text)) }
+    }
+
+    private fun encodeWorkspace(workspace: Workspace, portable: Boolean): ByteArray {
+        val profiles = JSONArray()
+        workspace.profiles.forEach { profile ->
+            profiles.put(
+                JSONObject().put("id", profile.id).put("name", profile.name)
+                    .put("baseUrl", profile.baseUrl).put("model", profile.model)
+                    .put("encryptedKey", if (portable) "" else profile.encryptedKey).put("voice", profile.voice.toJson())
+                    .put("systemPrompt", profile.systemPrompt).put("concise", profile.concise)
+                    .put("tools", JSONArray(profile.tools.map { it.wire })).put("managed", profile.managed),
+            )
+        }
+        val threads = JSONObject()
+        workspace.profiles.forEach { profile ->
+            threads.put(profile.id, JSONArray().apply {
+                workspace.conversationsFor(profile.id).forEach { item ->
+                    put(JSONObject().put("id", item.id).put("title", item.title).put("messages", writeMessages(item.messages)))
+                }
+            })
+        }
+        return JSONObject().put("activeId", workspace.activeId ?: JSONObject.NULL)
+            .put("profiles", profiles).put("conversations", threads)
+            .put("activeConversations", JSONObject(workspace.activeConversations)).toString().toByteArray(Charsets.UTF_8)
     }
 
     fun encryptKey(id: String, baseUrl: String, key: String): String = try {
@@ -116,8 +154,7 @@ internal class WorkspaceStore(context: Context) {
     private fun JSONArray.objects(): List<JSONObject> = List(length()) { getJSONObject(it) }
 }
 
-private class KeyVault {
-    private val alias = "axis-provider-keys-v1"
+internal class KeyVault(private val alias: String = "axis-provider-keys-v1") {
 
     fun encrypt(scope: String, value: String): String {
         val keystore = openStore()
@@ -169,9 +206,10 @@ internal fun JSONObject?.toModelVoice(): ModelVoice {
         pitch = optDouble("pitch", 1.0).takeIf { it.isFinite() }?.toFloat()?.coerceIn(0.7f, 1.4f) ?: 1f,
         neuralVoice = optString("neuralVoice").takeIf { it in geminiVoices },
         speechStyle = SpeechStyle.entries.firstOrNull { it.name == optString("speechStyle") } ?: SpeechStyle.NATURAL,
+        piper = optBoolean("piper"),
     )
 }
 
 internal fun ModelVoice.toJson(): JSONObject = JSONObject().put("language", language)
     .put("name", name ?: JSONObject.NULL).put("rate", rate.toDouble()).put("pitch", pitch.toDouble())
-    .put("neuralVoice", neuralVoice ?: JSONObject.NULL).put("speechStyle", speechStyle.name)
+    .put("neuralVoice", neuralVoice ?: JSONObject.NULL).put("speechStyle", speechStyle.name).put("piper", piper)

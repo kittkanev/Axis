@@ -1,0 +1,12 @@
+{
+	admin 127.0.0.1:2019
+	auto_https disable_redirects
+	skip_install_trust
+}
+
+https://localhost:8443 {
+	bind 127.0.0.1
+	tls internal
+	respond /proxy-healthz "Axis proxy ready" 200
+	reverse_proxy 127.0.0.1:8080
+}

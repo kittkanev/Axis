@@ -282,6 +282,7 @@ internal class AssistantController(
                     current.update { it.copy(draft = "", screen = null, proposal = proposal, waiting = false) }
                 }
             },
+            onPartial = { part -> current.update { if (it.waiting) it.copy(reply = part) else it } },
             onReply = { reply ->
                 replied = true
                 if (visible && token == requestNumber) {
