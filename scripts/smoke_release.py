@@ -11,6 +11,19 @@ import xml.etree.ElementTree as ET
 NAMESPACE = "io.github.kittkanev.axis"
 PACKAGE = os.environ.get("AXIS_SMOKE_PACKAGE", NAMESPACE)
 APK = Path(sys.argv[1]).resolve()
+RES = Path(__file__).resolve().parents[1] / "app/src/main/res"
+
+
+def strings(directory):
+    return {
+        node.attrib["name"]: "".join(node.itertext()).strip().casefold()
+        for file in sorted((RES / directory).glob("*.xml"))
+        for node in ET.parse(file).getroot().findall("string")
+    }
+
+
+RUSSIAN = strings("values")
+ENGLISH = strings("values-en")
 
 
 def component(class_name):
@@ -27,6 +40,12 @@ def shell(*args):
 
 
 def wait_for(label):
+    label_key = label.strip().casefold()
+    translations = {label_key}
+    for name in RUSSIAN.keys() & ENGLISH.keys():
+        labels = {RUSSIAN[name], ENGLISH[name]}
+        if label_key in labels:
+            translations.update(labels)
     deadline = time.monotonic() + 35
     visible = []
     while time.monotonic() < deadline:
@@ -35,7 +54,7 @@ def wait_for(label):
             tree = ET.fromstring(adb("exec-out", "cat", "/sdcard/axis-smoke.xml"))
             visible = [node.get("text", "") for node in tree.iter("node")]
             for node in tree.iter("node"):
-                if node.get("text", "").casefold() == label.casefold():
+                if node.get("text", "").strip().casefold() in translations:
                     return node
         except (ET.ParseError, subprocess.SubprocessError):
             pass
